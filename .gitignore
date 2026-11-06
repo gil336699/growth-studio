@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+.DS_Store
+*.log
+*.stl
+!test-fixtures/*.stl
+*.obj
+*.growthlab.json
+*.growthstudio.json
+.env
+.env.*
