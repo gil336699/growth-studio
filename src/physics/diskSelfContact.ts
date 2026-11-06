@@ -94,7 +94,7 @@ export function createDiskSelfContact(positions: Float32Array, indices: Uint32Ar
   }
 
   // Push apart nonlocal edges that come within clearance, keeping each pair on its last accepted side.
-  function repelEdges(previous: Float32Array) {
+  function repelEdges(previous: Float32Array, touched?: Uint8Array) {
     tree.refit()
     const pairs: number[] = []
     const edgeCount = edgeEnds.length / 2
@@ -163,6 +163,7 @@ export function createDiskSelfContact(positions: Float32Array, indices: Uint32Ar
       direction.multiplyScalar(strength * (gap + (crossed ? distance : -distance)) / mass)
       for (let k = 0; k < 4; k++) {
         for (let axis = 0; axis < 3; axis++) positions[ends[k] * 3 + axis] += direction.getComponent(axis) * shares[k]
+        if (touched) touched[ends[k]] = 1
       }
       corrections++
     }
@@ -171,7 +172,8 @@ export function createDiskSelfContact(positions: Float32Array, indices: Uint32Ar
 
   // Find the closest nonlocal surface to each vertex. Collect pairs before
   // applying corrections so the BVH bounds stay valid throughout the queries.
-  function repel(previous: Float32Array, contact?: ContactSettings) {
+  // Optionally marks every vertex moved by a correction in `touched`.
+  function repel(previous: Float32Array, contact?: ContactSettings, touched?: Uint8Array) {
     settings = contact
     // Search far enough for whichever response is larger.
     clearance = Math.max(CONTACT_DEFAULTS.distance, contact?.distance ?? CONTACT_DEFAULTS.distance)
@@ -245,9 +247,10 @@ export function createDiskSelfContact(positions: Float32Array, indices: Uint32Ar
         positions[b + axis] -= correction * weights.y
         positions[c + axis] -= correction * weights.z
       }
+      if (touched) touched[vertex] = touched[a / 3] = touched[b / 3] = touched[c / 3] = 1
       corrections++
     }
-    return corrections + repelEdges(previous)
+    return corrections + repelEdges(previous, touched)
   }
 
   return Object.assign(intersects, { repel })

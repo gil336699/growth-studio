@@ -1,5 +1,16 @@
 # Growth Studio Changelog
 
+## 0.2.0 2026-11-06
+
+- Growth layers replace openings and rim sources: rim (with lobes), painted, point, line, height ramp, and noise layers, each with strength, start and stop steps, and intensity keyframes. The disk and STLs use the same layers.
+- Brush: paint, erase, and smooth on any surface, while growing, with size, strength, hardness, mirror or radial symmetry, pen pressure, and an on-model brush ring. Erase cancels paint first.
+- Timeline: automatic and manual snapshots, scrubbing back, and branching from an earlier step. Phase recipes run grow and relax steps in order.
+- Form readouts: waves per growing rim, size compared with the start, and dimensions in millimeters. Fold size sets rim width and bend together. Stop at a size, strain, or step.
+- View: growth field, growth so far, and recent contact overlays, a ghost of the starting shape, and Frame model. Voronoi cells stay visible while growing.
+- Presets (lettuce edge, petal, coral, collar, bloom) and Explore variants, which grows four versions in the background and continues the chosen one.
+- Keyboard shortcuts, tooltips on controls, and a shortcuts panel.
+- Project format version 2 with layers, paint, timeline step, brush, overlay, phases, and stop settings. Version 1 projects convert on open.
+
 ## 0.1.0 2026-11-06
 
 - Split the disk differential growth workspace out of Growth Lab (commit `2837c65`) as a standalone app.
