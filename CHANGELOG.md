@@ -1,5 +1,15 @@
 # Growth Studio Changelog
 
+## 0.5.0 2026-11-07
+
+- New look in the style of Apple's Liquid Glass. The 3D view fills the window, and the app name, both panels, the tool bars, and the timeline float above it on translucent glass that blurs the model behind it.
+- Play growth, Step, and Reset moved into the timeline dock at the bottom of the 3D view, next to the scrubber, as in a media player. The status line is there too.
+- Controls follow Apple conventions: capsule buttons, segmented controls for tabs and options, sliders with a tinted track and a white knob, switches for layer visibility and Center exported mesh, and grouped lists for layers, presets, and readouts. Blue marks primary actions and current values; red stays for the growth field on the model.
+- The system font replaces the downloaded web fonts.
+- Light and dark mode follow the system. Reduce transparency makes the panels nearly opaque, and Increase contrast strengthens edges and secondary text.
+- On narrower windows Step and Reset show only their symbols. On phones the status and the scrubber each get their own line.
+- The keyboard shortcuts dialog now focuses Close instead of the first button.
+
 ## 0.4.0 2026-11-07
 
 - Every control shows a short description on hover or keyboard focus, with its shortcut. The tooltip appears after a short pause, then right away as you move along a row of controls. It replaces the browser's slow native tooltips, which some embedded browsers don't show.

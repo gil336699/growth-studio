@@ -3,8 +3,8 @@ export function drawThumbnail(canvas: HTMLCanvasElement, positions: ArrayLike<nu
   const context = canvas.getContext('2d')
   if (!context) return
   const { width, height } = canvas
-  context.fillStyle = '#17212b'
-  context.fillRect(0, 0, width, height)
+  // Transparent, so the thumbnail sits on the card behind it in light and dark mode.
+  context.clearRect(0, 0, width, height)
   const count = positions.length / 3
   if (!count) return
   // Rotate 35 degrees down about X so the view matches the workspace camera.

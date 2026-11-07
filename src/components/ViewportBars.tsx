@@ -1,4 +1,5 @@
 import type { BrushSettings, DiskView, Overlay } from '../lib/diskProject'
+import { rangeFill } from '../lib/rangeFill'
 import type { Tool } from '../lib/tools'
 
 type Props = {
@@ -32,7 +33,7 @@ function BarSlider({ label, value, display, min, max, step, title, shortcut, onC
   onChange: (value: number) => void
 }) {
   return <label className="bar-slider" data-tip={title} data-key={shortcut}><span>{label} <b>{display}</b></span>
-    <input type="range" min={min} max={max} step={step} value={value} onChange={event => onChange(event.currentTarget.valueAsNumber)} />
+    <input type="range" min={min} max={max} step={step} value={value} style={rangeFill(value, min, max)} onChange={event => onChange(event.currentTarget.valueAsNumber)} />
   </label>
 }
 
@@ -43,14 +44,14 @@ export function ViewportBars(props: Props) {
   const set = (patch: Partial<BrushSettings>) => props.onBrush({ ...brush, ...patch })
   return <div className="viewport-bars">
     <div className="viewport-bar-row">
-      <div className="floating-bar" role="group" aria-label="Viewport tools">
+      <div className="floating-bar glass" role="group" aria-label="Viewport tools">
         {TOOLS.map(([value, label, key, title]) => <button key={value} type="button" aria-pressed={tool === value} data-tip={title} data-key={key}
           onClick={() => props.onTool(value)}>{label}</button>)}
         <span className="bar-divider" aria-hidden="true" />
         <button type="button" disabled={!props.canUndo} aria-label="Undo brush stroke" data-key="⌘Z"
           data-tip={props.canUndo ? 'Undo the last brush stroke.' : 'No brush strokes to undo yet.'} onClick={props.onUndo}>Undo</button>
       </div>
-      <div className="floating-bar view-bar" role="group" aria-label="Display">
+      <div className="floating-bar glass view-bar" role="group" aria-label="Display">
         <label className="bar-select" data-key="G"
           data-tip="Color the model by where it grows now (Field), where it has grown (Grown), or where folds touched (Contact)."><span aria-hidden="true">Color</span>
           <select aria-label="Color overlay" value={props.overlay} onChange={event => props.onOverlay(event.currentTarget.value as Overlay)}>
@@ -67,7 +68,7 @@ export function ViewportBars(props: Props) {
         <button type="button" data-tip="Fit the whole model in the view." data-key="F" onClick={props.onFrame}>Frame</button>
       </div>
     </div>
-    {brushing && <div className="floating-bar brush-bar" role="group" aria-label="Brush settings">
+    {brushing && <div className="floating-bar glass brush-bar" role="group" aria-label="Brush settings">
       <BarSlider label="Size" value={brush.radius} display={percent(brush.radius)} min={0.02} max={0.6} step={0.01}
         title="Brush radius, as a share of the model radius." shortcut="[ ]" onChange={radius => set({ radius })} />
       <BarSlider label="Strength" value={brush.strength} display={percent(brush.strength)} min={0.05} max={1} step={0.05}
@@ -85,7 +86,7 @@ export function ViewportBars(props: Props) {
       {brush.symmetry === 'radial' && <BarSlider label="Copies" value={brush.copies} display={String(brush.copies)} min={2} max={12} step={1}
         title="How many times a stroke repeats around the model." onChange={copies => set({ copies })} />}
     </div>}
-    {props.placing && <div className="floating-bar placing-bar" role="group" aria-label="Placing">
+    {props.placing && <div className="floating-bar glass placing-bar" role="group" aria-label="Placing">
       <span>{props.placing}</span>
       <button type="button" data-tip="Finish placing and go back to orbiting." data-key="Esc" onClick={() => props.onTool('orbit')}>Done</button>
     </div>}

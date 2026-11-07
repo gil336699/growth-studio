@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Vector3 } from 'three'
 import { LayersPanel } from './components/LayersPanel'
+import { Icon } from './components/Icon'
 import { Modal } from './components/Modal'
 import { Timeline, type SnapshotMark } from './components/Timeline'
 import { TooltipLayer } from './components/Tooltip'
@@ -16,6 +17,7 @@ import {
 import { formSize, rimWaves } from './lib/formReadouts'
 import { exportBinaryStl, exportObj } from './lib/meshExport'
 import { PRESETS } from './lib/presets'
+import { rangeFill } from './lib/rangeFill'
 import { saveFile, type SaveResult } from './lib/saveFile'
 import { createGrowingDisk, DISK_DEFAULTS, diskGravityDirection, type BrushMode, type DiskSnapshot } from './physics/growingDisk'
 import type { GrowthLayer, Vec3 } from './physics/growthLayers'
@@ -40,7 +42,8 @@ function Slider({ label, value, display, min, max, step, title, onChange, disabl
   onChange: (value: number) => void; disabled?: boolean
 }) {
   return <label data-tip={title}><span>{label} <b>{display}</b></span>
-    <input type="range" min={min} max={max} step={step} value={value} disabled={disabled} onChange={event => onChange(event.currentTarget.valueAsNumber)} />
+    <input type="range" min={min} max={max} step={step} value={value} disabled={disabled} style={rangeFill(value, min, max)}
+      onChange={event => onChange(event.currentTarget.valueAsNumber)} />
   </label>
 }
 
@@ -492,27 +495,32 @@ export function App() {
         : ''
   const rimEdges = previewRim === null ? undefined : previewRim === -1 ? rims.flatMap(rim => rim.edges) : rims[previewRim]?.edges
 
-  return <main className="spike-shell disk-workspace">
-    <header className="spike-header disk-toolbar">
+  const transport = <div className="transport" role="group" aria-label="Playback">
+    <button className="primary" disabled={!active && !canSimulate} data-key="Space"
+      data-tip={active ? 'Stop growing.' : blockedReason || (relaxing ? 'Let the shape settle without adding growth, until you stop it.' : 'Grow continuously until you stop it, or until Stop at is reached.')}
+      onClick={() => active ? stopPlayback() : play()}><Icon name={active ? 'stop' : 'play'} />{active ? 'Stop' : relaxing ? 'Play relaxation' : 'Play growth'}</button>
+    <button disabled={active || !canSimulate} data-key="."
+      data-tip={active ? 'Stop playback first.' : blockedReason || `Run ${manualSteps} steps, then pause. Change the batch size under Simulation › Advanced.`} onClick={stepOnce}><Icon name="step" /><span className="compact-label">Step {manualSteps}</span></button>
+    <button disabled={loading} data-tip="Go back to the starting surface and clear the timeline and paint. Your layers and settings stay."
+      onClick={() => guard('Reset to the starting surface?', 'Reset', reset)}><Icon name="reset" /><span className="compact-label">Reset</span></button>
+  </div>
+  const status = <span className="playback-status" role="status" data-warning={Boolean(disk.initialOverlap || disk.stepStatus === 'contact' || detailLimit)}>
+    {playbackStatus}{detailLimit && <><span aria-hidden="true"> · </span>Mesh detail limit</>}
+  </span>
+
+  return <main className="studio">
+    <div className="stage">
+      <Viewport disk={disk} tick={tick} view={view} overlay={overlay} ghost={ghost} imported={Boolean(input)} running={running}
+        tool={tool} canEdit={!loading} brush={brush} rimEdges={rimEdges} layers={layers} selectedLayerId={selectedLayer?.id ?? null}
+        onStroke={onStroke} onPlace={onPlace} gravityArrow={gravityArrow} cameraKey={cameraKey} />
+    </div>
+
+    <header className="brand glass">
       <div><p className="app-kicker">Differential growth</p><h1>Growth Studio</h1></div>
-      <div className="disk-playback">
-        <span className="disk-playback-status" role="status" data-warning={Boolean(disk.initialOverlap || disk.stepStatus === 'contact' || detailLimit)}>
-          {playbackStatus}{detailLimit && <><span aria-hidden="true"> · </span>Mesh detail limit</>}
-        </span>
-        <div className="disk-transport" role="group" aria-label="Playback">
-          <button className="primary" disabled={!active && !canSimulate} data-key="Space"
-            data-tip={active ? 'Stop growing.' : blockedReason || (relaxing ? 'Let the shape settle without adding growth, until you stop it.' : 'Grow continuously until you stop it, or until Stop at is reached.')}
-            onClick={() => active ? stopPlayback() : play()}>{active ? 'Stop' : relaxing ? 'Play relaxation' : 'Play growth'}</button>
-          <button disabled={active || !canSimulate} data-key="."
-            data-tip={active ? 'Stop playback first.' : blockedReason || `Run ${manualSteps} steps, then pause. Change the batch size under Simulation › Advanced.`} onClick={stepOnce}>Step {manualSteps}</button>
-          <button disabled={loading} data-tip="Go back to the starting surface and clear the timeline and paint. Your layers and settings stay."
-            onClick={() => guard('Reset to the starting surface?', 'Reset', reset)}>Reset</button>
-          <button className="icon-button" aria-label="Keyboard shortcuts" data-tip="Keyboard shortcuts and the quick start" data-key="?" onClick={() => setShowHelp(true)}>?</button>
-        </div>
-      </div>
+      <button className="icon-button" aria-label="Keyboard shortcuts" data-tip="Keyboard shortcuts and the quick start" data-key="?" onClick={() => setShowHelp(true)}>?</button>
     </header>
 
-    <aside className="spike-controls side-panel" aria-label="Design controls">
+    <aside className="sidebar side-panel glass" aria-label="Design controls">
       <section className="model-card" aria-labelledby="model-name">
         <p className="eyebrow">Starting surface</p>
         <h2 id="model-name" data-tip={input ? input.name : 'A flat disk with one open rim, ready to grow.'}>{input ? input.name : 'Default disk'}</h2>
@@ -617,31 +625,35 @@ export function App() {
       </TabPanel>
     </aside>
 
-    <section className="spike-view view-stack">
-      <Viewport disk={disk} tick={tick} view={view} overlay={overlay} ghost={ghost} imported={Boolean(input)} running={running}
-        tool={tool} canEdit={!loading} brush={brush} rimEdges={rimEdges} layers={layers} selectedLayerId={selectedLayer?.id ?? null}
-        onStroke={onStroke} onPlace={onPlace} gravityArrow={gravityArrow} cameraKey={cameraKey} caption={caption}>
-        <ViewportBars tool={tool} brush={brush} canUndo={disk.canUndoBrush} overlay={overlay} view={view} ghost={ghost}
-          placing={tool === 'point' ? `Placing ${selectedLayer?.name ?? 'point'}` : tool === 'line' ? `Drawing ${selectedLayer?.name ?? 'line'}` : null}
-          onTool={setTool} onBrush={setBrush} onUndo={undoStroke} onOverlay={setOverlay} onView={setView} onGhost={setGhost}
-          onFrame={() => setCameraKey(k => k + 1)} />
-        {showQuickStart && <section className="quick-start" aria-labelledby="quick-start-title">
-          <h2 id="quick-start-title">Quick start</h2>
-          <ol>
-            <li><b>Pick a surface:</b> the disk, or Upload STL.</li>
-            <li><b>Choose where it grows:</b> layers in Growth field, or Paint on the model.</li>
-            <li><b>Press Play growth</b> or Space. Drag the timeline to look back.</li>
-          </ol>
-          <p>Hover any control to see what it does.</p>
-          <button type="button" className="primary" data-tip="Hide this guide. Reopen it from the ? button." onClick={closeQuickStart}>Got it</button>
-        </section>}
-      </Viewport>
-      <Timeline marks={snapshots.map(s => s.mark)} viewing={viewing} step={step} strain={disk.strain} every={every} active={active}
-        phases={phases} phaseIndex={phaseIndex} onScrub={scrub} onSnapshot={takeSnapshot} onEvery={setEvery}
-        onPhases={next => { setPhases(next); touch() }} onRunPhases={runPhases} />
+    <section className="center" aria-label="3D view">
+      <ViewportBars tool={tool} brush={brush} canUndo={disk.canUndoBrush} overlay={overlay} view={view} ghost={ghost}
+        placing={tool === 'point' ? `Placing ${selectedLayer?.name ?? 'point'}` : tool === 'line' ? `Drawing ${selectedLayer?.name ?? 'line'}` : null}
+        onTool={setTool} onBrush={setBrush} onUndo={undoStroke} onOverlay={setOverlay} onView={setView} onGhost={setGhost}
+        onFrame={() => setCameraKey(k => k + 1)} />
+      {showQuickStart && <section className="quick-start glass" aria-labelledby="quick-start-title">
+        <h2 id="quick-start-title">Quick start</h2>
+        <ol>
+          <li><b>Pick a surface:</b> the disk, or Upload STL.</li>
+          <li><b>Choose where it grows:</b> layers in Growth field, or Paint on the model.</li>
+          <li><b>Press Play growth</b> or Space. Drag the timeline to look back.</li>
+        </ol>
+        <p>Hover any control to see what it does.</p>
+        <button type="button" className="primary" data-tip="Hide this guide. Reopen it from the ? button." onClick={closeQuickStart}>Got it</button>
+      </section>}
+      <div className="dock">
+        <div className="view-caption">
+          <span>{caption}</span>
+          {overlay !== 'none' && <span className={`field-key key-${overlay}`}>
+            {overlay === 'field' ? 'Growth field' : overlay === 'growth' ? 'Growth so far' : 'Recent contact'}
+          </span>}
+        </div>
+        <Timeline marks={snapshots.map(s => s.mark)} viewing={viewing} step={step} strain={disk.strain} every={every} active={active}
+          phases={phases} phaseIndex={phaseIndex} onScrub={scrub} onSnapshot={takeSnapshot} onEvery={setEvery}
+          onPhases={next => { setPhases(next); touch() }} onRunPhases={runPhases} transport={transport} status={status} />
+      </div>
     </section>
 
-    <aside className="metrics-panel disk-inspector side-panel" aria-label="Form and output">
+    <aside className="inspector side-panel glass" aria-label="Form and output">
       <Tabs label="Form and output" idBase="output" value={rightTab} onChange={setRightTab} tabs={[
         { id: 'form', label: 'Form', title: 'Measurements of the current shape, Fold size, and solver stats.' },
         { id: 'explore', label: 'Explore', title: 'Start from a preset, or grow four variants and keep the one you like.' },
@@ -722,7 +734,6 @@ export function App() {
         </section>
       </TabPanel>
     </aside>
-    <footer className="spike-footer">{input ? 'STL surface · crease-preserving remesh' : 'Default disk'} · Hover any control to see what it does · Press ? for shortcuts</footer>
 
     {pending && <Modal role="alertdialog" labelledBy="confirm-title" describedBy="confirm-body" onClose={() => setPending(null)}>
         <h2 id="confirm-title">{pending.title}</h2>

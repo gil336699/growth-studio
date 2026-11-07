@@ -12,7 +12,8 @@ export function Modal({ role = 'dialog', labelledBy, describedBy, label, onClose
   const card = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const first = card.current?.querySelector<HTMLElement>('[data-autofocus], button')
+    // Prefer the marked control, even when other buttons come first in the dialog.
+    const first = card.current?.querySelector<HTMLElement>('[data-autofocus]') ?? card.current?.querySelector<HTMLElement>('button')
     first?.focus()
     return () => opener?.focus()
   }, [])

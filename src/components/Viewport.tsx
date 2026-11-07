@@ -1,6 +1,6 @@
 import { OrbitControls } from '@react-three/drei'
 import { Canvas, type ThreeEvent } from '@react-three/fiber'
-import { type ComponentRef, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { type ComponentRef, useEffect, useMemo, useRef, useState } from 'react'
 import {
   BufferAttribute, BufferGeometry, Color, DoubleSide, Line, LineBasicMaterial, MOUSE, Quaternion, TOUCH, Vector3,
 } from 'three'
@@ -220,16 +220,13 @@ function Sheet(props: SheetProps) {
 export function Viewport(props: SheetProps & {
   gravityArrow: [Vector3, Vector3, number, string, number, number] | null
   cameraKey: number
-  caption: string
-  children?: ReactNode
 }) {
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null)
   useEffect(() => { controls.current?.reset() }, [props.cameraKey])
   const editing = props.canEdit && props.tool !== 'orbit'
-  return <div className="spike-canvas" style={{ cursor: editing ? 'crosshair' : 'grab' }}>
+  return <div className="stage-canvas" style={{ cursor: editing ? 'crosshair' : 'grab' }}>
     <Canvas camera={{ position: [0, 3.4, 3.4], fov: 48 }} role="img"
       aria-label="3D view of the growing surface. Drag to orbit, scroll to zoom. Use the controls to step, play, and inspect growth.">
-      <color attach="background" args={['#17212b']} />
       <ambientLight intensity={1} /><directionalLight position={[1, 4, 3]} intensity={2.4} />
       <Sheet {...props} />
       {props.gravityArrow && <arrowHelper args={props.gravityArrow} />}
@@ -240,12 +237,5 @@ export function Viewport(props: SheetProps & {
         ? { LEFT: undefined, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.ROTATE }
         : { LEFT: MOUSE.ROTATE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.PAN }} />
     </Canvas>
-    <div className="disk-view-caption">
-      <span>{props.caption}</span>
-      {props.overlay !== 'none' && <span className={`disk-field-key key-${props.overlay}`}>
-        {props.overlay === 'field' ? 'Growth field' : props.overlay === 'growth' ? 'Growth so far' : 'Recent contact'}
-      </span>}
-    </div>
-    {props.children}
   </div>
 }

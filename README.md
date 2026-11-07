@@ -17,10 +17,15 @@ To build static files you can host anywhere, run `npm run build`. The site is wr
 
 ## Layout
 
-- **Left panel.** The starting surface sits at the top, with Upload STL, Default disk, and any warnings about the mesh. Below it, the **Growth field** tab holds the growth layers and the **Simulation** tab holds growth rate, stopping, gravity, contact, and advanced settings.
-- **Over the 3D view.** Tools (Orbit, Paint, Erase, Smooth, Undo) are at the top left. Choosing a brush tool shows its size, strength, hardness, and symmetry just below. Color overlay, mesh view, ghost, and framing are at the top right.
-- **Below the 3D view.** The timeline, with snapshots, scrubbing, and phases.
+The 3D view fills the window, and the controls float above it on translucent glass, in the style of Apple's Liquid Glass. The look follows the system's light or dark appearance, and its Reduce transparency and Increase contrast settings.
+
+- **Top left.** The app name and the **?** button for shortcuts and the quick start.
+- **Left panel.** The starting surface, with Upload STL, Default disk, and any warnings about the mesh. Below it, the **Growth field** tab holds the growth layers and the **Simulation** tab holds growth rate, stopping, gravity, contact, and advanced settings.
+- **Top of the 3D view.** Tools (Orbit, Paint, Erase, Smooth, Undo) on the left. Choosing a brush tool shows its size, strength, hardness, and symmetry just below. Color overlay, mesh view, ghost, and framing on the right.
+- **Bottom of the 3D view.** The timeline dock: **Play growth**, **Step**, and **Reset**, the status, scrubbing, snapshots, and phases.
 - **Right panel.** **Form** shows measurements, Fold size, and stats. **Explore** has presets and variants. **File** saves, opens, and exports, and shows a dot when there are unsaved changes.
+
+On tablets the 3D view sits on top, with both panels below it. On phones everything is in one column.
 
 ## Help in the app
 
@@ -33,7 +38,7 @@ To build static files you can host anywhere, run `npm run build`. The site is wr
 1. **Starting surface.** Use the default disk, or choose **Upload STL**. Open rims are detected automatically.
 2. **Growth layers.** Decide where growth comes from. Each layer has a strength, its own settings, and optional timing.
 3. **Brush.** Pick Paint, Erase, or Smooth above the 3D view and brush growth onto the model, even while it grows.
-4. **Grow.** Press **Play growth**, step in batches, or run a recipe of phases. **Relax only** lets the form settle without adding growth.
+4. **Grow.** Press **Play growth** in the timeline dock, step in batches, or run a recipe of phases. **Relax only** lets the form settle without adding growth.
 5. **Look back.** Scrub the timeline to any snapshot and continue from there.
 6. **Save and export.** **Save project** writes an editable `.growthstudio.json` file. **Export OBJ** or **Export STL** writes the current surface in the STL's original coordinates, unless **Center exported mesh** is checked. The surface is an open sheet and may need thickness before printing.
 

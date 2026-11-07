@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { createLayer, LAYER_LABELS, timeFactor, type GrowthLayer, type LayerKind, type LayerTiming } from '../physics/growthLayers'
+import { rangeFill } from '../lib/rangeFill'
 import { rimName, type Tool } from '../lib/tools'
 
 type Rim = { index: number; vertices: number[]; height: number }
@@ -33,7 +34,8 @@ function Slider({ label, value, display, min, max, step, title, onChange, disabl
   onChange: (value: number) => void; disabled?: boolean
 }) {
   return <label data-tip={title}><span>{label} <b>{display}</b></span>
-    <input type="range" min={min} max={max} step={step} value={value} disabled={disabled} onChange={event => onChange(event.currentTarget.valueAsNumber)} />
+    <input type="range" min={min} max={max} step={step} value={value} disabled={disabled} style={rangeFill(value, min, max)}
+      onChange={event => onChange(event.currentTarget.valueAsNumber)} />
   </label>
 }
 
@@ -76,7 +78,7 @@ function TimingEditor({ layer, end, update }: { layer: GrowthLayer; end: number;
     {timing.keys.map((key, i) => <div className="key-row" key={i}>
       <input className="number-input" type="number" min="0" step="10" aria-label={`Keyframe ${i + 1} step`} data-tip="Timeline step of this keyframe." value={key.step}
         onChange={event => set({ keys: timing.keys.map((k, j) => j === i ? { ...k, step: number(event.currentTarget.value) } : k) })} />
-      <input type="range" min="0" max="1" step="0.05" aria-label={`Keyframe ${i + 1} intensity`} data-tip="Layer intensity at this step. Between keyframes it changes smoothly." value={key.value}
+      <input type="range" min="0" max="1" step="0.05" aria-label={`Keyframe ${i + 1} intensity`} data-tip="Layer intensity at this step. Between keyframes it changes smoothly." value={key.value} style={rangeFill(key.value, 0, 1)}
         onChange={event => set({ keys: timing.keys.map((k, j) => j === i ? { ...k, value: event.currentTarget.valueAsNumber } : k) })} />
       <b>{percent(key.value)}</b>
       <button type="button" aria-label={`Remove keyframe ${i + 1}`} data-tip="Remove this keyframe." onClick={() => set({ keys: timing.keys.filter((_, j) => j !== i) })}>×</button>
@@ -115,7 +117,7 @@ export function LayersPanel(props: Props) {
         onPointerLeave={() => props.onPreviewRim(null)}>
         <button type="button" className="layer-eye" aria-pressed={layer.visible} aria-label={`${layer.visible ? 'Hide' : 'Show'} ${layer.name}`}
           data-tip={layer.visible ? 'Turn this layer off without deleting it.' : 'Turn this layer back on.'} onClick={() => update(layer.id, { visible: !layer.visible })}>
-          {layer.visible ? 'On' : 'Off'}
+          <span className="switch" aria-hidden="true" />
         </button>
         <button type="button" className="layer-name" data-tip={`${layer.name}. ${LAYER_TIPS[layer.kind]}`} onClick={() => props.onSelect(layer.id)}>
           <span>{layer.name}</span>
