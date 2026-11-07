@@ -103,3 +103,7 @@ npm run build
 - `src/lib/`: STL import, project files, export, presets, readouts, and symmetry
 
 Growth Studio was split out of Growth Lab at commit `2837c65`.
+
+## License
+
+Growth Studio is released under the [MIT License](LICENSE).
