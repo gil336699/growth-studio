@@ -1,5 +1,11 @@
 # Growth Studio Changelog
 
+## 0.2.1 2026-11-06
+
+- Reset, Upload STL, Default disk, and Open project now ask in an in-app dialog, with Cancel, Save project first, and continue. Browser confirm dialogs could be blocked, which made Reset do nothing in embedded browsers.
+- Save project and Export use the system save dialog where available and fall back to a download. Save project first only continues once the file is saved.
+- Two settings changed in quick succession now both apply.
+
 ## 0.2.0 2026-11-06
 
 - Growth layers replace openings and rim sources: rim (with lobes), painted, point, line, height ramp, and noise layers, each with strength, start and stop steps, and intensity keyframes. The disk and STLs use the same layers.

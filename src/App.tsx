@@ -12,6 +12,7 @@ import {
 import { formSize, rimWaves } from './lib/formReadouts'
 import { exportBinaryStl, exportObj } from './lib/meshExport'
 import { PRESETS } from './lib/presets'
+import { saveFile, type SaveResult } from './lib/saveFile'
 import { createGrowingDisk, DISK_DEFAULTS, diskGravityDirection, type BrushMode, type DiskSnapshot } from './physics/growingDisk'
 import type { GrowthLayer, Vec3 } from './physics/growthLayers'
 import { growthExportPositions, readGrowthStl, type GrowthStlSource } from './physics/growthStl'
@@ -88,8 +89,12 @@ export function App() {
   const step = disk.clock
   const rims = disk.openRims
   const unsaved = step !== savedPoint.step || edits !== savedPoint.edits
-  const confirmDiscard = (action: string) => !unsaved || window.confirm(
-    `${action} Unsaved growth and edits in the current design will be lost. Choose Cancel, then Save project, to keep them.`)
+  // Actions that replace the current design ask first in an in-app dialog; browser confirm dialogs can be blocked.
+  const [pending, setPending] = useState<{ title: string; confirm: string; run: () => void } | null>(null)
+  const guard = (title: string, confirm: string, run: () => void) => {
+    if (unsaved) setPending({ title, confirm, run })
+    else run()
+  }
   const touch = () => setEdits(value => value + 1)
   const manualSteps = input ? importBatch : batch
   const stepsPerUpdate = input ? importSpeed : speed
@@ -102,11 +107,12 @@ export function App() {
     setLayersState(target.layers)
     touch()
   }, [disk])
-  const change = (key: keyof Mechanics, value: number) => {
-    const settings = { ...mechanics, [key]: value }
+  // Build on the latest settings so two quick changes in a row both apply.
+  const change = (key: keyof Mechanics, value: number) => setMechanics(current => {
+    const settings = { ...current, [key]: value }
     disk.setMechanics(settings)
-    setMechanics(settings)
-  }
+    return settings
+  })
   // Swap in a new solver state and the controls that describe it.
   const adopt = (next: Disk, keepTimeline = false) => {
     setDisk(next)
@@ -174,32 +180,30 @@ export function App() {
   const modelName = (input?.name.replace(/\.stl$/i, '') ?? 'default-disk')
     .replace(/[^a-z0-9_-]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 48) || 'surface'
   const snapshotName = `${modelName}-step-${step}`
-  const download = (filename: string, data: BlobPart, type: string) => {
-    const url = URL.createObjectURL(new Blob([data], { type }))
-    const link = document.createElement('a')
-    link.href = url
-    link.download = filename
-    link.click()
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-  }
-  const exportMesh = (format: 'obj' | 'stl') => {
+  const describe = (result: SaveResult, filename: string) => result === 'saved' ? `Saved ${filename}.`
+    : result === 'downloaded' ? `Download requested for ${filename}. If no file appears, open Growth Studio in Chrome or Safari.`
+      : result === 'cancelled' ? 'Save cancelled.' : `Could not save ${filename}.`
+  const exportMesh = async (format: 'obj' | 'stl') => {
     const positions = input ? growthExportPositions(disk.positions, input, centerExport) : disk.positions
     const data = format === 'obj' ? exportObj(positions, disk.indices, snapshotName) : exportBinaryStl(positions, disk.indices, snapshotName)
     const filename = `${snapshotName}.${format}`
-    download(filename, data, format === 'obj' ? 'text/plain' : 'model/stl')
-    setExportStatus(`Download requested for ${filename}.`)
+    const result = await saveFile(filename, data, format === 'obj' ? 'text/plain' : 'model/stl', format === 'obj' ? 'OBJ mesh' : 'STL mesh')
+    setExportStatus(describe(result, filename))
   }
-  const saveProject = () => {
+  // Resolves true once the project is written or handed to the browser as a download.
+  const saveProject = async () => {
     const source = input && { ...input, positions: Array.from(input.positions), indices: Array.from(input.indices) }
     const json = serializeDiskProject({
       source, disk: disk.snapshot(), mechanics, revision: step, centerExport, relaxing, view,
       speed, batch, importSpeed, importBatch, brush, overlay, ghost, phases, stopAt,
     })
     const filename = `${snapshotName}.growthstudio.json`
-    download(filename, json, 'application/json')
+    const saved = { step, edits }
+    const result = await saveFile(filename, json, 'application/json', 'Growth Studio project')
     setProjectError('')
-    setSavedPoint({ step, edits })
-    setProjectStatus(`Download requested for ${filename}.`)
+    setProjectStatus(describe(result, filename))
+    if (result === 'saved' || result === 'downloaded') { setSavedPoint(saved); return true }
+    return false
   }
   const openProject = async (file: File) => {
     setLoading(true)
@@ -413,7 +417,7 @@ export function App() {
     const target = event.target instanceof Element ? event.target : null
     if (target?.closest('input, select, textarea') && event.key !== 'Escape') return
     const mod = event.metaKey || event.ctrlKey
-    if (mod && event.key.toLowerCase() === 's') { event.preventDefault(); if (!active) saveProject(); return }
+    if (mod && event.key.toLowerCase() === 's') { event.preventDefault(); if (!active) void saveProject(); return }
     if (mod && event.key.toLowerCase() === 'z') { event.preventDefault(); if (disk.canUndoBrush) undoStroke(); return }
     if (mod || event.altKey) return
     const key = event.key
@@ -428,7 +432,7 @@ export function App() {
     else if (key === 'g' || key === 'G') setOverlay(o => (['field', 'growth', 'contact', 'none'] as Overlay[])[(['field', 'growth', 'contact', 'none'].indexOf(o) + 1) % 4])
     else if (key === 'f' || key === 'F') setCameraKey(k => k + 1)
     else if (['1', '2', '3', '4'].includes(key)) setView((['smooth', 'triangles', 'cells', 'fans'] as DiskView[])[Number(key) - 1])
-    else if (key === 'Escape') { setTool('orbit'); setShowHelp(false) }
+    else if (key === 'Escape') { setTool('orbit'); setShowHelp(false); setPending(null) }
     else if (key === '?') setShowHelp(show => !show)
   }
     window.addEventListener('keydown', onKey)
@@ -471,7 +475,7 @@ export function App() {
             onClick={() => active ? stopPlayback() : play()}>{active ? 'Stop' : relaxing ? 'Play relaxation' : 'Play growth'}</button>
           <button disabled={active || !canSimulate} title="Advance a batch of steps (.)" onClick={stepOnce}>Step {manualSteps}</button>
           <button disabled={loading} title="Return to the starting surface. Keeps your layers and clears paint."
-            onClick={() => { if (confirmDiscard('Reset to the starting surface?')) reset() }}>Reset</button>
+            onClick={() => guard('Reset to the starting surface?', 'Reset', reset)}>Reset</button>
           <button className="icon-button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" onClick={() => setShowHelp(true)}>?</button>
         </div>
       </div>
@@ -487,8 +491,8 @@ export function App() {
         }} />
         <div className="button-row">
           <button disabled={loading} title="Grow an open STL surface, such as a vase base."
-            onClick={() => { if (confirmDiscard('Load a new STL?')) inputRef.current?.click() }}>{loading ? 'Preparing…' : 'Upload STL'}</button>
-          <button disabled={loading || !input} onClick={() => { if (confirmDiscard('Switch to the default disk?')) switchToDefaultDisk() }}>Default disk</button>
+            onClick={() => guard('Load a new STL?', 'Discard and choose STL', () => inputRef.current?.click())}>{loading ? 'Preparing…' : 'Upload STL'}</button>
+          <button disabled={loading || !input} onClick={() => guard('Switch to the default disk?', 'Discard and switch', switchToDefaultDisk)}>Default disk</button>
         </div>
         {importError && <p className="hint" role="alert">{importError}</p>}
         {input && <p className="hint">{rims.length} open {rims.length === 1 ? 'rim' : 'rims'} found. Prepared with {disk.preparationSplits} edge splits and {disk.preparationFlips} balancing flips.</p>}
@@ -651,8 +655,8 @@ export function App() {
           if (file) void openProject(file)
         }} />
         <div className="button-row">
-          <button disabled={loading || active} title="Save shape, layers, and settings (⌘S)" onClick={saveProject}>Save project</button>
-          <button disabled={loading || active} onClick={() => { if (confirmDiscard('Open another project?')) projectRef.current?.click() }}>Open project</button>
+          <button disabled={loading || active} title="Save shape, layers, and settings (⌘S)" onClick={() => void saveProject()}>Save project</button>
+          <button disabled={loading || active} onClick={() => guard('Open another project?', 'Discard and open', () => projectRef.current?.click())}>Open project</button>
         </div>
         {active && <p className="hint">Stop the simulation to save, open, or export.</p>}
         {projectStatus && <p className="hint" role="status">{projectStatus}</p>}
@@ -667,8 +671,8 @@ export function App() {
             : 'This project predates coordinate preservation. Reimport the original STL to use its coordinates.'}</p>
         </>}
         <div className="button-row">
-          <button disabled={active} onClick={() => exportMesh('obj')}>Export OBJ</button>
-          <button disabled={active} onClick={() => exportMesh('stl')}>Export STL</button>
+          <button disabled={active} onClick={() => void exportMesh('obj')}>Export OBJ</button>
+          <button disabled={active} onClick={() => void exportMesh('stl')}>Export STL</button>
         </div>
         <p className="hint" role="status">{exportStatus || 'The surface is an open sheet and may need thickness before printing.'}</p>
       </section>
@@ -688,6 +692,18 @@ export function App() {
       </section>
     </aside>
     <footer className="spike-footer">{input ? 'STL surface · crease-preserving remesh' : 'Default disk'} · Press ? for shortcuts</footer>
+
+    {pending && <div className="help-backdrop" role="presentation" onClick={() => setPending(null)}>
+      <div className="help-card" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-body" onClick={event => event.stopPropagation()}>
+        <h2 id="confirm-title">{pending.title}</h2>
+        <p id="confirm-body" className="hint">Unsaved growth and edits in the current design will be lost.</p>
+        <div className="confirm-actions">
+          <button type="button" autoFocus onClick={() => setPending(null)}>Cancel</button>
+          <button type="button" title="Save the project file, then continue." onClick={() => { const { run } = pending; setPending(null); void saveProject().then(saved => { if (saved) run() }) }}>Save project first</button>
+          <button type="button" className="primary" onClick={() => { const { run } = pending; setPending(null); run() }}>{pending.confirm}</button>
+        </div>
+      </div>
+    </div>}
 
     {showHelp && <div className="help-backdrop" role="presentation" onClick={() => setShowHelp(false)}>
       <div className="help-card" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" onClick={event => event.stopPropagation()}>

@@ -239,3 +239,6 @@ kbd { display: inline-block; padding: 2px 6px; border: 1px solid #c7d2dd; border
 @media (max-width: 900px) {
   .disk-workspace .view-stack .spike-canvas { min-height: 360px; }
 }
+
+.confirm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+.confirm-actions .primary { grid-column: 1 / -1; }
