@@ -1,5 +1,15 @@
 # Growth Studio Changelog
 
+## 0.3.0 2026-11-07
+
+- New layout. The left panel has the starting surface at the top and two tabs: Growth field (layers) and Simulation. The right panel has Form, Explore (presets and variants), and File tabs. Each tab scrolls on its own, so the tabs stay in reach. Before, each panel was about 2,000 px tall.
+- Tools and brush settings float over the top left of the 3D view, and appear as soon as you press B, E, or S. Color overlay, mesh view, ghost, and framing are at the top right.
+- Placing a point or drawing a line shows a Done button over the 3D view. A painted layer has a Paint on model button.
+- Phases open from a button in the timeline header, and Run phases is always visible there once phases exist. The 3D view is taller as a result.
+- The File tab shows a dot when there are unsaved changes, and saving with ⌘S reports the result in the header.
+- When Play is unavailable because nothing grows, the status says so, for example on a closed STL with no open rims.
+- On tablets the 3D view takes half the screen, with both panels side by side below. On phones, display options hide while you brush.
+
 ## 0.2.3 2026-11-06
 
 - Contact is checked only where the sheet grows, moved, or recently touched. A step on a 181,000-triangle STL dropped from 51 seconds to under a second, with the same fold spacing on the weave vase.

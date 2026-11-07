@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { Phase } from '../lib/diskProject'
 
 export type SnapshotMark = { step: number; strain: number; size: number }
@@ -23,12 +24,18 @@ export function Timeline(props: Props) {
   const shown = viewing ?? last
   const span = Math.max(1, step, marks.at(-1)?.step ?? 1)
   const totalPhaseSteps = phases.reduce((sum, phase) => sum + phase.steps, 0)
+  const [showPhases, setShowPhases] = useState(false)
   return <section className="timeline" aria-label="Timeline">
     <div className="timeline-head">
       <h2>Timeline</h2>
       <span className="hint">{viewing !== null && viewing < last
         ? `Viewing step ${marks[viewing].step}. Play or step to continue from here; later snapshots will be replaced.`
         : `Step ${step}. A snapshot is kept every ${every} steps.`}</span>
+      <button type="button" className="phases-toggle" aria-expanded={showPhases} aria-controls="phase-editor"
+        title="A recipe of grow and relax phases" onClick={() => setShowPhases(!showPhases)}>
+        Phases{phases.length ? ` · ${phases.length} · ${totalPhaseSteps} steps` : ''} <span aria-hidden="true">{showPhases ? '▴' : '▾'}</span>
+      </button>
+      {phases.length > 0 && <button type="button" className="primary phases-toggle" disabled={active} onClick={props.onRunPhases}>Run phases</button>}
     </div>
     <svg className="timeline-marks" viewBox="0 0 1000 18" preserveAspectRatio="none" aria-hidden="true">
       <line x1="0" y1="9" x2="1000" y2="9" />
@@ -47,8 +54,7 @@ export function Timeline(props: Props) {
         {[20, 50, 100, 200].map(value => <option key={value} value={value}>Every {value}</option>)}
       </select>
     </div>
-    <details className="phases">
-      <summary>Phases {phases.length ? `· ${phases.length} · ${totalPhaseSteps} steps` : ''}</summary>
+    {showPhases && <div className="phases" id="phase-editor">
       <p className="hint">A recipe of grow and relax phases. Run phases plays them in order, then stops.</p>
       <div className="phase-list">
         {phases.map((phase, i) => <div key={i} className="phase-chip">
@@ -61,10 +67,7 @@ export function Timeline(props: Props) {
           {phaseIndex === i && <b className="phase-now">now</b>}
         </div>)}
       </div>
-      <div className="button-row">
-        <button type="button" onClick={() => props.onPhases([...phases, { mode: phases.at(-1)?.mode === 'grow' ? 'relax' : 'grow', steps: 100 }])}>Add phase</button>
-        <button type="button" className="primary" disabled={!phases.length || active} onClick={props.onRunPhases}>Run phases</button>
-      </div>
-    </details>
+      <button type="button" onClick={() => props.onPhases([...phases, { mode: phases.at(-1)?.mode === 'grow' ? 'relax' : 'grow', steps: 100 }])}>Add phase</button>
+    </div>}
   </section>
 }

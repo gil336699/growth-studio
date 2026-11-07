@@ -1,6 +1,6 @@
 import { OrbitControls } from '@react-three/drei'
 import { Canvas, type ThreeEvent } from '@react-three/fiber'
-import { type ComponentRef, useEffect, useMemo, useRef, useState } from 'react'
+import { type ComponentRef, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import {
   BufferAttribute, BufferGeometry, Color, DoubleSide, Line, LineBasicMaterial, MOUSE, Quaternion, TOUCH, Vector3,
 } from 'three'
@@ -221,6 +221,7 @@ export function Viewport(props: SheetProps & {
   gravityArrow: [Vector3, Vector3, number, string, number, number] | null
   cameraKey: number
   caption: string
+  children?: ReactNode
 }) {
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null)
   useEffect(() => { controls.current?.reset() }, [props.cameraKey])
@@ -245,5 +246,6 @@ export function Viewport(props: SheetProps & {
         {props.overlay === 'field' ? 'Growth field' : props.overlay === 'growth' ? 'Growth so far' : 'Recent contact'}
       </span>}
     </div>
+    {props.children}
   </div>
 }

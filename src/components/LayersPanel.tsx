@@ -189,8 +189,12 @@ export function LayersPanel(props: Props) {
       </>}
 
       {selected.kind === 'paint' && <>
-        <p className="hint">Paint growth on the model with the brush. Erase removes paint first, then masks other layers.</p>
-        <button type="button" className="wide" onClick={props.onClearPaint}>Clear paint and erase</button>
+        <p className="hint">Paint growth on the model with the brush tools above the 3D view. Erase removes paint first, then masks other layers.</p>
+        <div className="button-row">
+          <button type="button" className={tool === 'paint' ? 'primary' : undefined} title="Paint growth onto the model (B)"
+            onClick={() => props.onTool(tool === 'paint' ? 'orbit' : 'paint')}>{tool === 'paint' ? 'Stop painting' : 'Paint on model'}</button>
+          <button type="button" title="Clear all paint and erase marks." onClick={props.onClearPaint}>Clear paint</button>
+        </div>
       </>}
 
       <TimingEditor layer={selected} end={timelineEnd} update={patch => update(selected.id, patch)} />

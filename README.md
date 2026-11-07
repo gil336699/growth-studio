@@ -15,11 +15,18 @@ Open the address Vite prints, normally `http://localhost:5173`.
 
 To build static files you can host anywhere, run `npm run build`. The site is written to `dist/`. Preview it with `npm run preview`.
 
+## Layout
+
+- **Left panel.** The starting surface sits at the top, with Upload STL, Default disk, and any warnings about the mesh. Below it, the **Growth field** tab holds the growth layers and the **Simulation** tab holds growth rate, stopping, gravity, contact, and advanced settings.
+- **Over the 3D view.** Tools (Orbit, Paint, Erase, Smooth, Undo) are at the top left. Choosing a brush tool shows its size, strength, hardness, and symmetry just below. Color overlay, mesh view, ghost, and framing are at the top right.
+- **Below the 3D view.** The timeline, with snapshots, scrubbing, and phases.
+- **Right panel.** **Form** shows measurements, Fold size, and stats. **Explore** has presets and variants. **File** saves, opens, and exports, and shows a dot when there are unsaved changes.
+
 ## Workflow
 
 1. **Starting surface.** Use the default disk, or choose **Upload STL**. Open rims are detected automatically.
 2. **Growth layers.** Decide where growth comes from. Each layer has a strength, its own settings, and optional timing.
-3. **Brush.** Paint, erase, or smooth growth directly on the model, even while it grows.
+3. **Brush.** Pick Paint, Erase, or Smooth above the 3D view and brush growth onto the model, even while it grows.
 4. **Grow.** Press **Play growth**, step in batches, or run a recipe of phases. **Relax only** lets the form settle without adding growth.
 5. **Look back.** Scrub the timeline to any snapshot and continue from there.
 6. **Save and export.** **Save project** writes an editable `.growthstudio.json` file. **Export OBJ** or **Export STL** writes the current surface in the STL's original coordinates, unless **Center exported mesh** is checked. The surface is an open sheet and may need thickness before printing.
@@ -54,11 +61,11 @@ Every layer can start and stop at timeline steps, and intensity keyframes ramp i
 | Fold size (Form) | Sets rim width and bend stiffness together, from fine to broad. |
 | Gravity | Pulls on the growth field only. The rest of the model stays in place. |
 | Repel distance and strength | How far apart folds in the growth field stay when they meet, and how quickly they are pushed back. |
-| Remesh edge length, Mesh detail limit (Advanced) | Starting triangle size and how many vertices growth can add. |
+| Remesh edge length, Mesh detail limit (Simulation › Advanced) | Starting triangle size and how many vertices growth can add. |
 
-The **Form** panel reports waves on each growing rim, size compared with the start, and dimensions in millimeters. **View** switches the color overlay between the growth field, growth so far, and recent contact, and can show a ghost of the starting shape.
+The **Form** tab reports waves on each growing rim, size compared with the start, and dimensions in millimeters. The **Color** menu above the 3D view switches the overlay between the growth field, growth so far, and recent contact, and **Ghost** shows the starting shape.
 
-**Presets** set layers and settings for common forms: lettuce edge, petal, coral, collar, and bloom. **Explore variants** grows four versions from the current shape with one setting changed, so you can continue the one you like.
+In the **Explore** tab, **Presets** set layers and settings for common forms: lettuce edge, petal, coral, collar, and bloom. **Explore variants** grows four versions from the current shape with one setting changed, so you can continue the one you like.
 
 ## Keyboard shortcuts
 
