@@ -608,6 +608,8 @@ export function createGrowingDisk(input?: { positions: Float32Array; indices: Ui
       }
       // Contact heat fades over about a dozen steps so recent contacts stay visible.
       for (let v = 0; v < contactHeat.length; v++) contactHeat[v] = touched[v] ? 1 : contactHeat[v] * 0.92
+      // Show and report the field for the new timeline step, so a layer that starts now can grow.
+      if (layers.some(isTimed)) refreshField()
     },
   }
 }

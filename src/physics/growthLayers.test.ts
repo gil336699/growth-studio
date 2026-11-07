@@ -70,6 +70,9 @@ it('waits for a layer that starts later and then grows it', () => {
   expect(disk.canGrow).toBe(true)
   for (let i = 0; i < 10; i++) disk.step(true)
   expect(disk.strain).toBe(0)
+  // At the start step the layer is already on, so playback stays available.
+  expect(disk.hasField).toBe(true)
+  expect(disk.canGrow).toBe(true)
   for (let i = 0; i < 10; i++) disk.step(true)
   expect(disk.strain).toBeCloseTo(10 * DISK_DEFAULTS.growthRate, 9)
   expect(disk.clock).toBe(20)

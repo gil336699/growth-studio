@@ -16,11 +16,12 @@ const rimTarget = (rimCount: number) => rimCount === 2 ? 0 : 'all' as const
 
 export const PRESETS: Preset[] = [
   {
-    id: 'lettuce', name: 'Lettuce edge', description: 'Tight, frilly ruffles along a narrow rim band.',
+    id: 'lettuce', name: 'Lettuce edge', description: 'Tight ruffles along a narrow rim band. For finer frills, lower Remesh edge length and press Reset.',
     build: rimCount => ({
       layers: [createLayer('rim', { name: 'Ruffled rim', rim: rimTarget(rimCount), width: 0.08, falloff: 'linear' }), createLayer('paint')],
       mechanics: { growthRate: 0.004, bending: 0.03, compoundGrowth: 0, gravity: 0 },
-      stopAt: { kind: 'size', value: 1.6 },
+      // Strain stops work on any surface; a rim ruffle barely changes a tall vase's overall size.
+      stopAt: { kind: 'strain', value: 3 },
     }),
   },
   {
@@ -40,7 +41,7 @@ export const PRESETS: Preset[] = [
         createLayer('paint'),
       ],
       mechanics: { growthRate: 0.002, bending: 0.05, compoundGrowth: 1, gravity: 0 },
-      stopAt: { kind: 'size', value: 1.8 },
+      stopAt: { kind: 'strain', value: 8 },
     }),
   },
   {

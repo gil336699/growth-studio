@@ -2,7 +2,7 @@ import { OrbitControls } from '@react-three/drei'
 import { Canvas, type ThreeEvent } from '@react-three/fiber'
 import { type ComponentRef, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  BufferAttribute, BufferGeometry, Color, DoubleSide, Line, LineBasicMaterial, MOUSE, Quaternion, Vector3,
+  BufferAttribute, BufferGeometry, Color, DoubleSide, Line, LineBasicMaterial, MOUSE, Quaternion, TOUCH, Vector3,
 } from 'three'
 import type { BrushSettings, DiskView, Overlay } from '../lib/diskProject'
 import { symmetricPoints, verticalAxis } from '../lib/symmetry'
@@ -232,7 +232,10 @@ export function Viewport(props: SheetProps & {
       <ambientLight intensity={1} /><directionalLight position={[1, 4, 3]} intensity={2.4} />
       <Sheet {...props} />
       {props.gravityArrow && <arrowHelper args={props.gravityArrow} />}
-      <OrbitControls ref={controls} makeDefault mouseButtons={editing
+      {/* While editing, one finger paints and two fingers zoom and turn. */}
+      <OrbitControls ref={controls} makeDefault
+        touches={editing ? { ONE: undefined, TWO: TOUCH.DOLLY_ROTATE } : { ONE: TOUCH.ROTATE, TWO: TOUCH.DOLLY_PAN }}
+        mouseButtons={editing
         ? { LEFT: undefined, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.ROTATE }
         : { LEFT: MOUSE.ROTATE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.PAN }} />
     </Canvas>

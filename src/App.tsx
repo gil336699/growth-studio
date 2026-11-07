@@ -444,7 +444,7 @@ export function App() {
     : null, [mechanics])
   const size = formSize(disk.positions, disk.referencePositions, input?.scale)
   const growingRims = rims.filter(rim => layers.some(layer => layer.visible && layer.kind === 'rim' && (layer.rim === 'all' || layer.rim === rim.index)))
-  const waves = (growingRims.length ? growingRims : rims).map(rim => ({
+  const waves = growingRims.map(rim => ({
     name: rimName(rims, rim.index), count: rimWaves(rim, disk.referencePositions, disk.positions),
   }))
   const detailLimit = disk.positions.length / 3 >= disk.growthBudget
@@ -453,7 +453,8 @@ export function App() {
       : disk.lastContactCorrections > 0 ? 'Contact corrected last step' : ''
   const slowed = !relaxing && disk.growthThrottle < 0.995
   const phaseMode = phaseIndex !== null ? phases[phaseIndex]?.mode : null
-  const playbackStatus = contactStatus || (loading ? 'Loading…' : active
+  // While paused, a stop message explains why playback ended; contact status shows otherwise.
+  const playbackStatus = loading ? 'Loading…' : !active && notice ? notice : contactStatus || (active
     ? (phaseMode ? `Phase ${phaseIndex! + 1}: ${phaseMode === 'relax' ? 'relaxing' : 'growing'}`
       : relaxing ? 'Relaxing' : slowed ? `Growing at ${Math.round(disk.growthThrottle * 100)}% (contact)` : 'Growing')
     : notice || 'Paused')
@@ -467,7 +468,7 @@ export function App() {
     <header className="spike-header disk-toolbar">
       <div><p className="app-kicker">Differential growth</p><h1>Growth Studio</h1></div>
       <div className="disk-playback">
-        <span className="disk-playback-status" role="status" data-warning={Boolean(contactStatus || detailLimit)}>
+        <span className="disk-playback-status" role="status" data-warning={Boolean(disk.initialOverlap || disk.stepStatus === 'contact' || detailLimit)}>
           {playbackStatus}{detailLimit && <><span aria-hidden="true"> · </span>Mesh detail limit</>}
         </span>
         <div className="disk-transport" role="group" aria-label="Playback">

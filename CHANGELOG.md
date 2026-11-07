@@ -1,5 +1,13 @@
 # Growth Studio Changelog
 
+## 0.2.2 2026-11-06
+
+- A layer that starts at a timeline step now becomes active at that step. Before, playback was unavailable at the start step and growth could not begin.
+- The stop message stays visible after playback stops, instead of being replaced by contact status. Routine contact corrections no longer show as a warning.
+- Presets stop at a target strain, which works on vases as well as disks. Lettuce edge notes how to get finer frills.
+- Layer rows are left-aligned and show On or Off. Waves are listed only for rims that are growing. Timing curve labels are larger.
+- On touch screens, one finger paints while a brush tool is active; two fingers zoom and turn.
+
 ## 0.2.1 2026-11-06
 
 - Reset, Upload STL, Default disk, and Open project now ask in an in-app dialog, with Cancel, Save project first, and continue. Browser confirm dialogs could be blocked, which made Reset do nothing in embedded browsers.

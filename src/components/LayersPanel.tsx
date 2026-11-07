@@ -106,7 +106,7 @@ export function LayersPanel(props: Props) {
         onPointerLeave={() => props.onPreviewRim(null)}>
         <button type="button" className="layer-eye" aria-pressed={layer.visible} aria-label={`${layer.visible ? 'Hide' : 'Show'} ${layer.name}`}
           title={layer.visible ? 'Turn this layer off' : 'Turn this layer on'} onClick={() => update(layer.id, { visible: !layer.visible })}>
-          {layer.visible ? '●' : '○'}
+          {layer.visible ? 'On' : 'Off'}
         </button>
         <button type="button" className="layer-name" onClick={() => props.onSelect(layer.id)}>
           <span>{layer.name}</span>

@@ -10,3 +10,6 @@ coverage/
 *.growthstudio.json
 .env
 .env.*
+
+# Local test models and QA scripts
+local/
