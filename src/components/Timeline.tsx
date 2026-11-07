@@ -32,10 +32,10 @@ export function Timeline(props: Props) {
         ? `Viewing step ${marks[viewing].step}. Play or step to continue from here; later snapshots will be replaced.`
         : `Step ${step}. A snapshot is kept every ${every} steps.`}</span>
       <button type="button" className="phases-toggle" aria-expanded={showPhases} aria-controls="phase-editor"
-        title="A recipe of grow and relax phases" onClick={() => setShowPhases(!showPhases)}>
+        data-tip="Plan a recipe of grow and relax phases that plays in order." onClick={() => setShowPhases(!showPhases)}>
         Phases{phases.length ? ` · ${phases.length} · ${totalPhaseSteps} steps` : ''} <span aria-hidden="true">{showPhases ? '▴' : '▾'}</span>
       </button>
-      {phases.length > 0 && <button type="button" className="primary phases-toggle" disabled={active} onClick={props.onRunPhases}>Run phases</button>}
+      {phases.length > 0 && <button type="button" className="primary phases-toggle" disabled={active} data-tip="Play the phases in order, then stop." onClick={props.onRunPhases}>Run phases</button>}
     </div>
     <svg className="timeline-marks" viewBox="0 0 1000 18" preserveAspectRatio="none" aria-hidden="true">
       <line x1="0" y1="9" x2="1000" y2="9" />
@@ -44,13 +44,13 @@ export function Timeline(props: Props) {
     </svg>
     <div className="timeline-controls">
       <input type="range" min="0" max={Math.max(0, last)} step="1" value={Math.max(0, shown)} disabled={marks.length < 2 || active}
-        aria-label="Scrub snapshots" title="Drag to go back to an earlier snapshot."
+        aria-label="Scrub snapshots" data-tip={marks.length < 2 ? 'Snapshots appear here as the model grows. Drag back to any of them.' : 'Drag to go back to an earlier snapshot. Play or step from there to branch.'}
         onChange={event => { const index = event.currentTarget.valueAsNumber; props.onScrub(index === last ? null : index) }} />
       <span className="timeline-readout">{viewing !== null && marks[viewing]
         ? `${marks[viewing].step} · ${Math.round(marks[viewing].strain * 100)}%`
         : `${step} · ${Math.round(strain * 100)}%`}</span>
-      <button type="button" disabled={active} onClick={props.onSnapshot} title="Keep the current shape as a snapshot.">Snapshot</button>
-      <select value={every} aria-label="Snapshot interval" title="How often snapshots are kept automatically." onChange={event => props.onEvery(Number(event.currentTarget.value))}>
+      <button type="button" disabled={active} onClick={props.onSnapshot} data-tip="Keep the current shape on the timeline so you can come back to it.">Snapshot</button>
+      <select value={every} aria-label="Snapshot interval" data-tip="How often snapshots are kept automatically." onChange={event => props.onEvery(Number(event.currentTarget.value))}>
         {[20, 50, 100, 200].map(value => <option key={value} value={value}>Every {value}</option>)}
       </select>
     </div>
@@ -58,16 +58,16 @@ export function Timeline(props: Props) {
       <p className="hint">A recipe of grow and relax phases. Run phases plays them in order, then stops.</p>
       <div className="phase-list">
         {phases.map((phase, i) => <div key={i} className="phase-chip">
-          <select value={phase.mode} aria-label={`Phase ${i + 1} mode`} onChange={event => props.onPhases(phases.map((p, j) => j === i ? { ...p, mode: event.currentTarget.value as Phase['mode'] } : p))}>
+          <select value={phase.mode} aria-label={`Phase ${i + 1} mode`} data-tip="Grow adds growth. Relax lets the shape settle." onChange={event => props.onPhases(phases.map((p, j) => j === i ? { ...p, mode: event.currentTarget.value as Phase['mode'] } : p))}>
             <option value="grow">Grow</option><option value="relax">Relax</option>
           </select>
-          <input className="number-input" type="number" min="1" step="10" aria-label={`Phase ${i + 1} steps`} value={phase.steps}
+          <input className="number-input" type="number" min="1" step="10" aria-label={`Phase ${i + 1} steps`} data-tip="How many steps this phase runs." value={phase.steps}
             onChange={event => props.onPhases(phases.map((p, j) => j === i ? { ...p, steps: Math.max(1, Math.round(Number(event.currentTarget.value) || 1)) } : p))} />
-          <button type="button" aria-label={`Remove phase ${i + 1}`} onClick={() => props.onPhases(phases.filter((_, j) => j !== i))}>×</button>
+          <button type="button" aria-label={`Remove phase ${i + 1}`} data-tip="Remove this phase." onClick={() => props.onPhases(phases.filter((_, j) => j !== i))}>×</button>
           {phaseIndex === i && <b className="phase-now">now</b>}
         </div>)}
       </div>
-      <button type="button" onClick={() => props.onPhases([...phases, { mode: phases.at(-1)?.mode === 'grow' ? 'relax' : 'grow', steps: 100 }])}>Add phase</button>
+      <button type="button" data-tip="Add a phase to the end of the recipe." onClick={() => props.onPhases([...phases, { mode: phases.at(-1)?.mode === 'grow' ? 'relax' : 'grow', steps: 100 }])}>Add phase</button>
     </div>}
   </section>
 }

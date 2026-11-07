@@ -22,6 +22,12 @@ To build static files you can host anywhere, run `npm run build`. The site is wr
 - **Below the 3D view.** The timeline, with snapshots, scrubbing, and phases.
 - **Right panel.** **Form** shows measurements, Fold size, and stats. **Explore** has presets and variants. **File** saves, opens, and exports, and shows a dot when there are unsaved changes.
 
+## Help in the app
+
+- **Hover any control**, or move to it with Tab, to see a short description of what it does, with its keyboard shortcut. Buttons that are unavailable say why, for example why Play is off.
+- **Terms with a dotted underline**, such as Target strain, explain themselves on hover.
+- **Quick start** shows three steps on the first visit. Reopen it from the **?** button.
+
 ## Workflow
 
 1. **Starting surface.** Use the default disk, or choose **Upload STL**. Open rims are detected automatically.

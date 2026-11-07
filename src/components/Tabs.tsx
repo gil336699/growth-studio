@@ -20,7 +20,7 @@ export function Tabs<T extends string>({ label, idBase, tabs, value, onChange }:
   }
   return <div ref={list} className="tab-list" role="tablist" aria-label={label} onKeyDown={onKey}>
     {tabs.map(tab => <button key={tab.id} type="button" role="tab" id={`${idBase}-${tab.id}-tab`} aria-controls={`${idBase}-${tab.id}`}
-      aria-selected={tab.id === value} tabIndex={tab.id === value ? 0 : -1} title={tab.title} onClick={() => onChange(tab.id)}>
+      aria-selected={tab.id === value} tabIndex={tab.id === value ? 0 : -1} data-tip={tab.title} onClick={() => onChange(tab.id)}>
       {tab.label}
       {tab.badge && <><span className="tab-badge" aria-hidden="true" /><span className="visually-hidden">, {tab.badge}</span></>}
     </button>)}

@@ -68,24 +68,25 @@ export function Variants({ disk, source, mechanics, layers, onUse }: {
 
   return <section><h2>Explore variants</h2>
     <p className="hint">Grow four versions from the current shape with one setting changed, then continue the one you like.</p>
-    <label>Vary
+    <label data-tip="Which setting changes between the four variants.">Vary
       <select value={parameter} disabled={running} onChange={event => setParameter(event.currentTarget.value as Parameter)}>
         {(Object.keys(PARAMETERS) as Parameter[]).map(key => <option key={key} value={key} disabled={key === 'width' && !rimLayers.length}>{PARAMETERS[key].label}</option>)}
       </select>
     </label>
-    <label>Steps per variant
+    <label data-tip="How long each variant grows. Longer shows more difference but takes more time.">Steps per variant
       <select value={steps} disabled={running} onChange={event => setSteps(Number(event.currentTarget.value))}>
         {[100, 200, 400].map(value => <option key={value} value={value}>{value}</option>)}
       </select>
     </label>
-    <button type="button" className="wide" disabled={running} onClick={run}>{running ? 'Growing variants…' : 'Grow 4 variants'}</button>
+    <button type="button" className="wide" disabled={running} onClick={run}
+      data-tip="Grow four versions from the current shape in the background, each with the chosen setting changed.">{running ? 'Growing variants…' : 'Grow 4 variants'}</button>
     {results.length > 0 && <div className="variant-grid">
       {results.map((result, i) => <figure key={i} className="variant">
         <canvas ref={element => { canvases.current[i] = element }} width={150} height={120} aria-label={`Variant with ${PARAMETERS[parameter].label} ${result.label}`} />
         <figcaption>
           <span>{result.label}</span>
           {result.error ? <small role="alert">{result.error}</small>
-            : result.snapshot ? <button type="button" onClick={() => onUse(result.snapshot!, settings[i].mechanics, settings[i].layers)}>Use</button>
+            : result.snapshot ? <button type="button" data-tip="Continue from this variant, with its settings." onClick={() => onUse(result.snapshot!, settings[i].mechanics, settings[i].layers)}>Use</button>
               : <small>{Math.round(result.done / steps * 100)}%</small>}
         </figcaption>
       </figure>)}

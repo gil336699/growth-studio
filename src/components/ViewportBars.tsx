@@ -20,17 +20,18 @@ type Props = {
 }
 
 const TOOLS = [
-  ['orbit', 'Orbit', 'Turn the view (O)'],
-  ['paint', 'Paint', 'Paint growth onto the model (B). Works while it grows. Pen pressure sets strength.'],
-  ['erase', 'Erase', 'Remove paint, then mask other layers (E)'],
-  ['smooth', 'Smooth', 'Soften painted growth (S)'],
+  ['orbit', 'Orbit', 'O', 'Drag to turn the view, right-drag to pan, and scroll to zoom.'],
+  ['paint', 'Paint', 'B', 'Brush growth onto the model. Works while it grows, and pen pressure sets strength.'],
+  ['erase', 'Erase', 'E', 'Remove paint, then block other layers wherever you brush.'],
+  ['smooth', 'Smooth', 'S', 'Soften the edges of painted growth.'],
 ] as const
 const percent = (value: number) => `${Math.round(value * 100)}%`
 
-function BarSlider({ label, value, display, min, max, step, title, onChange }: {
-  label: string; value: number; display: string; min: number; max: number; step: number; title: string; onChange: (value: number) => void
+function BarSlider({ label, value, display, min, max, step, title, shortcut, onChange }: {
+  label: string; value: number; display: string; min: number; max: number; step: number; title: string; shortcut?: string
+  onChange: (value: number) => void
 }) {
-  return <label className="bar-slider" title={title}><span>{label} <b>{display}</b></span>
+  return <label className="bar-slider" data-tip={title} data-key={shortcut}><span>{label} <b>{display}</b></span>
     <input type="range" min={min} max={max} step={step} value={value} onChange={event => onChange(event.currentTarget.valueAsNumber)} />
   </label>
 }
@@ -43,38 +44,41 @@ export function ViewportBars(props: Props) {
   return <div className="viewport-bars">
     <div className="viewport-bar-row">
       <div className="floating-bar" role="group" aria-label="Viewport tools">
-        {TOOLS.map(([value, label, title]) => <button key={value} type="button" aria-pressed={tool === value} title={title}
+        {TOOLS.map(([value, label, key, title]) => <button key={value} type="button" aria-pressed={tool === value} data-tip={title} data-key={key}
           onClick={() => props.onTool(value)}>{label}</button>)}
         <span className="bar-divider" aria-hidden="true" />
-        <button type="button" disabled={!props.canUndo} aria-label="Undo brush stroke" title="Undo brush stroke (⌘Z)" onClick={props.onUndo}>Undo</button>
+        <button type="button" disabled={!props.canUndo} aria-label="Undo brush stroke" data-key="⌘Z"
+          data-tip={props.canUndo ? 'Undo the last brush stroke.' : 'No brush strokes to undo yet.'} onClick={props.onUndo}>Undo</button>
       </div>
       <div className="floating-bar view-bar" role="group" aria-label="Display">
-        <label className="bar-select" title="Color overlay (G)"><span aria-hidden="true">Color</span>
+        <label className="bar-select" data-key="G"
+          data-tip="Color the model by where it grows now (Field), where it has grown (Grown), or where folds touched (Contact)."><span aria-hidden="true">Color</span>
           <select aria-label="Color overlay" value={props.overlay} onChange={event => props.onOverlay(event.currentTarget.value as Overlay)}>
             <option value="field">Field</option><option value="growth">Grown</option><option value="contact">Contact</option><option value="none">Plain</option>
           </select>
         </label>
-        <label className="bar-select" title="Mesh view (1 to 4)"><span aria-hidden="true">Mesh</span>
+        <label className="bar-select" data-key="1–4"
+          data-tip="Show the surface smooth, as simulation triangles, as Voronoi cells, or as retriangulated cells."><span aria-hidden="true">Mesh</span>
           <select aria-label="Mesh view" value={props.view} onChange={event => props.onView(event.currentTarget.value as DiskView)}>
             <option value="smooth">Surface</option><option value="triangles">Triangles</option><option value="cells">Voronoi</option><option value="fans">Cell fans</option>
           </select>
         </label>
-        <button type="button" aria-pressed={props.ghost} title="Show the starting shape as a wireframe." onClick={() => props.onGhost(!props.ghost)}>Ghost</button>
-        <button type="button" title="Frame the model (F)" onClick={props.onFrame}>Frame</button>
+        <button type="button" aria-pressed={props.ghost} data-tip="Show the starting shape as a faint wireframe, to compare with the grown form." onClick={() => props.onGhost(!props.ghost)}>Ghost</button>
+        <button type="button" data-tip="Fit the whole model in the view." data-key="F" onClick={props.onFrame}>Frame</button>
       </div>
     </div>
     {brushing && <div className="floating-bar brush-bar" role="group" aria-label="Brush settings">
       <BarSlider label="Size" value={brush.radius} display={percent(brush.radius)} min={0.02} max={0.6} step={0.01}
-        title="Brush radius as a share of the model radius ([ and ])." onChange={radius => set({ radius })} />
+        title="Brush radius, as a share of the model radius." shortcut="[ ]" onChange={radius => set({ radius })} />
       <BarSlider label="Strength" value={brush.strength} display={percent(brush.strength)} min={0.05} max={1} step={0.05}
         title="How much growth one pass adds or removes. Pen pressure scales it." onChange={strength => set({ strength })} />
       <BarSlider label="Hardness" value={brush.hardness} display={percent(brush.hardness)} min={0} max={0.95} step={0.05}
         title="Soft brushes fade toward the edge. Hard brushes paint evenly to the inner ring." onChange={hardness => set({ hardness })} />
       <div className="bar-segment" role="group" aria-labelledby="symmetry-label">
-        <span id="symmetry-label">Symmetry</span>
+        <span id="symmetry-label" data-tip="Repeat each stroke: mirrored across the vertical axis, or around it.">Symmetry</span>
         <div>
           {(['off', 'mirror', 'radial'] as const).map(value => <button key={value} type="button" aria-pressed={brush.symmetry === value}
-            title={value === 'off' ? 'Paint one place.' : value === 'mirror' ? 'Mirror strokes across the vertical axis.' : 'Repeat strokes around the vertical axis.'}
+            data-tip={value === 'off' ? 'Paint one place.' : value === 'mirror' ? 'Mirror strokes across the vertical axis.' : 'Repeat strokes around the vertical axis.'}
             onClick={() => set({ symmetry: value })}>{value === 'off' ? 'Off' : value === 'mirror' ? 'Mirror' : 'Radial'}</button>)}
         </div>
       </div>
@@ -83,7 +87,7 @@ export function ViewportBars(props: Props) {
     </div>}
     {props.placing && <div className="floating-bar placing-bar" role="group" aria-label="Placing">
       <span>{props.placing}</span>
-      <button type="button" title="Finish placing (Esc)" onClick={() => props.onTool('orbit')}>Done</button>
+      <button type="button" data-tip="Finish placing and go back to orbiting." data-key="Esc" onClick={() => props.onTool('orbit')}>Done</button>
     </div>}
   </div>
 }

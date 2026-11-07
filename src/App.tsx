@@ -3,6 +3,7 @@ import { Vector3 } from 'three'
 import { LayersPanel } from './components/LayersPanel'
 import { Modal } from './components/Modal'
 import { Timeline, type SnapshotMark } from './components/Timeline'
+import { TooltipLayer } from './components/Tooltip'
 import { TabPanel, Tabs } from './components/Tabs'
 import { Variants } from './components/Variants'
 import { Viewport, type Disk, type StrokePoint } from './components/Viewport'
@@ -38,10 +39,13 @@ function Slider({ label, value, display, min, max, step, title, onChange, disabl
   label: string; value: number; display: string; min: number; max: number; step: number; title: string
   onChange: (value: number) => void; disabled?: boolean
 }) {
-  return <label title={title}><span>{label} <b>{display}</b></span>
+  return <label data-tip={title}><span>{label} <b>{display}</b></span>
     <input type="range" min={min} max={max} step={step} value={value} disabled={disabled} onChange={event => onChange(event.currentTarget.valueAsNumber)} />
   </label>
 }
+
+const QUICK_START_KEY = 'growth-studio:quick-start-dismissed'
+const quickStartDismissed = () => { try { return localStorage.getItem(QUICK_START_KEY) === '1' } catch { return false } }
 
 const SHORTCUTS: [string, string][] = [
   ['Space', 'Play or stop'], ['.', 'Step'], ['O', 'Orbit'], ['B', 'Paint'], ['E', 'Erase'], ['S', 'Smooth'],
@@ -87,6 +91,11 @@ export function App() {
   const [savedPoint, setSavedPoint] = useState({ step: 0, edits: 0 })
   const [notice, setNotice] = useState('')
   const [showHelp, setShowHelp] = useState(false)
+  const [showQuickStart, setShowQuickStart] = useState(() => !quickStartDismissed())
+  const closeQuickStart = () => {
+    setShowQuickStart(false)
+    try { localStorage.setItem(QUICK_START_KEY, '1') } catch { /* Private windows may block storage. */ }
+  }
   const [leftTab, setLeftTab] = useState<'field' | 'simulation'>('field')
   const [rightTab, setRightTab] = useState<'form' | 'explore' | 'file'>('form')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -476,6 +485,11 @@ export function App() {
     : tool === 'line' ? 'Click to add line points · Esc to finish'
       : BRUSH_TOOLS.includes(tool) ? 'Left drag to brush · Right drag to orbit · [ ] size'
         : 'Drag to orbit · Right drag to pan · Scroll to zoom'
+  const blockedReason = loading ? 'Preparing the surface…'
+    : disk.initialOverlap ? 'The starting surface crosses itself. Choose Grow anyway in the Starting surface card first.'
+      : !disk.canGrow ? (rims.length ? 'Nothing grows yet. Turn on a layer, or paint growth onto the model.'
+        : 'This surface has no open rims. Paint growth onto the model, or add a point, line, height, or noise layer.')
+        : ''
   const rimEdges = previewRim === null ? undefined : previewRim === -1 ? rims.flatMap(rim => rim.edges) : rims[previewRim]?.edges
 
   return <main className="spike-shell disk-workspace">
@@ -486,12 +500,14 @@ export function App() {
           {playbackStatus}{detailLimit && <><span aria-hidden="true"> · </span>Mesh detail limit</>}
         </span>
         <div className="disk-transport" role="group" aria-label="Playback">
-          <button className="primary" disabled={!active && !canSimulate} title="Play or stop (Space)"
+          <button className="primary" disabled={!active && !canSimulate} data-key="Space"
+            data-tip={active ? 'Stop growing.' : blockedReason || (relaxing ? 'Let the shape settle without adding growth, until you stop it.' : 'Grow continuously until you stop it, or until Stop at is reached.')}
             onClick={() => active ? stopPlayback() : play()}>{active ? 'Stop' : relaxing ? 'Play relaxation' : 'Play growth'}</button>
-          <button disabled={active || !canSimulate} title="Advance a batch of steps (.)" onClick={stepOnce}>Step {manualSteps}</button>
-          <button disabled={loading} title="Return to the starting surface. Keeps your layers and clears paint."
+          <button disabled={active || !canSimulate} data-key="."
+            data-tip={active ? 'Stop playback first.' : blockedReason || `Run ${manualSteps} steps, then pause. Change the batch size under Simulation › Advanced.`} onClick={stepOnce}>Step {manualSteps}</button>
+          <button disabled={loading} data-tip="Go back to the starting surface and clear the timeline and paint. Your layers and settings stay."
             onClick={() => guard('Reset to the starting surface?', 'Reset', reset)}>Reset</button>
-          <button className="icon-button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" onClick={() => setShowHelp(true)}>?</button>
+          <button className="icon-button" aria-label="Keyboard shortcuts" data-tip="Keyboard shortcuts and the quick start" data-key="?" onClick={() => setShowHelp(true)}>?</button>
         </div>
       </div>
     </header>
@@ -499,8 +515,8 @@ export function App() {
     <aside className="spike-controls side-panel" aria-label="Design controls">
       <section className="model-card" aria-labelledby="model-name">
         <p className="eyebrow">Starting surface</p>
-        <h2 id="model-name" title={input ? input.name : 'Default disk'}>{input ? input.name : 'Default disk'}</h2>
-        <p className="hint" title={input ? `Prepared with ${disk.preparationSplits} edge splits and ${disk.preparationFlips} balancing flips.` : undefined}>
+        <h2 id="model-name" data-tip={input ? input.name : 'A flat disk with one open rim, ready to grow.'}>{input ? input.name : 'Default disk'}</h2>
+        <p className="hint" data-tip={input ? `Prepared with ${disk.preparationSplits} edge splits and ${disk.preparationFlips} balancing flips.` : undefined}>
           {rims.length} open {rims.length === 1 ? 'rim' : 'rims'}{input ? ` · ${(input.indices.length / 3).toLocaleString()} triangles` : ' · flat sheet'}
         </p>
         <input ref={inputRef} type="file" accept=".stl,model/stl" hidden aria-label="Choose an STL file" onChange={event => {
@@ -509,9 +525,9 @@ export function App() {
           if (file) void importStl(file)
         }} />
         <div className="button-row">
-          <button disabled={loading} title="Grow an open STL surface, such as a vase base."
+          <button disabled={loading} data-tip="Load an open surface from an STL file, such as a vase base from Fusion. Open rims are found automatically."
             onClick={() => guard('Load a new STL?', 'Discard and choose STL', () => inputRef.current?.click())}>{loading ? 'Preparing…' : 'Upload STL'}</button>
-          <button disabled={loading || !input} title="Go back to the flat default disk." onClick={() => guard('Switch to the default disk?', 'Discard and switch', switchToDefaultDisk)}>Default disk</button>
+          <button disabled={loading || !input} data-tip={input ? 'Go back to the flat default disk.' : 'You are already using the default disk.'} onClick={() => guard('Switch to the default disk?', 'Discard and switch', switchToDefaultDisk)}>Default disk</button>
         </div>
         {importError && <p className="hint" role="alert">{importError}</p>}
         {disk.indices.length / 3 > SLOW_TRIANGLES && <div className="overlap-warning" role="status">
@@ -520,14 +536,15 @@ export function App() {
         {disk.initialOverlap && <div className="overlap-warning" role="alert">
           <p>The surface crosses itself in {disk.startingCrossings.toLocaleString()} {disk.startingCrossings === 1 ? 'place' : 'places'}, usually because several bodies were exported together.</p>
           <p>Combine the bodies in Fusion (Modify › Combine), or grow anyway: existing crossings are left alone and new ones are blocked.</p>
-          <button type="button" className="wide" onClick={() => { disk.ignoreStartingOverlaps(); touch(); setTick(value => value + 1) }}>Grow anyway</button>
+          <button type="button" className="wide" data-tip="Grow without fixing the mesh. Existing crossings are left alone, and new ones are still blocked."
+            onClick={() => { disk.ignoreStartingOverlaps(); touch(); setTick(value => value + 1) }}>Grow anyway</button>
         </div>}
         {disk.ignoringOverlaps && <p className="hint">Existing crossings are ignored. New crossings are still blocked.</p>}
       </section>
 
       <Tabs label="Design controls" idBase="design" value={leftTab} onChange={setLeftTab} tabs={[
-        { id: 'field', label: 'Growth field', title: 'Where the surface grows' },
-        { id: 'simulation', label: 'Simulation', title: 'How fast it grows, and how the sheet behaves' },
+        { id: 'field', label: 'Growth field', title: 'Where the surface grows: rim, point, line, height, noise, and painted layers.' },
+        { id: 'simulation', label: 'Simulation', title: 'How fast it grows, when it stops, and how the sheet bends, falls, and avoids itself.' },
       ]} />
       <TabPanel idBase="design" id="field" value={leftTab}>
         <LayersPanel layers={layers} selectedId={selectedLayer?.id ?? null} rims={rims} tool={tool} timelineEnd={Math.max(step, 600)}
@@ -537,18 +554,18 @@ export function App() {
       <TabPanel idBase="design" id="simulation" value={leftTab}>
         <section><h2>Growth</h2>
           <div className="button-row" role="group" aria-label="Simulation mode">
-            <button type="button" aria-pressed={!relaxing} disabled={Boolean(manualQueue)} title="Add growth each step." onClick={() => setRelaxing(false)}>Grow</button>
-            <button type="button" aria-pressed={relaxing} disabled={Boolean(manualQueue)} title="Let the shape settle without adding growth." onClick={() => setRelaxing(true)}>Relax only</button>
+            <button type="button" aria-pressed={!relaxing} disabled={Boolean(manualQueue)} data-tip="Add growth every step." onClick={() => setRelaxing(false)}>Grow</button>
+            <button type="button" aria-pressed={relaxing} disabled={Boolean(manualQueue)} data-tip="Let the shape settle and smooth out without adding growth." onClick={() => setRelaxing(true)}>Relax only</button>
           </div>
           <Slider label="Growth rate" value={mechanics.growthRate} display={`${(mechanics.growthRate * 100).toFixed(2)}% ${mechanics.compoundGrowth ? 'of size ' : ''}/ step`}
-            min={0} max={0.008} step={0.0005} title="Expansion added per accepted step. Zero pauses growth." onChange={value => change('growthRate', value)} />
+            min={0} max={0.008} step={0.0005} title="How much the growth field expands each step. Higher grows faster; lower folds more evenly. Zero pauses growth." onChange={value => change('growthRate', value)} />
           <div className="button-row" role="group" aria-label="Growth curve">
-            <button type="button" aria-pressed={!mechanics.compoundGrowth} title="Each step adds the same amount." onClick={() => change('compoundGrowth', 0)}>Linear</button>
-            <button type="button" aria-pressed={Boolean(mechanics.compoundGrowth)} title="Each step adds a share of the current size, so growth speeds up." onClick={() => change('compoundGrowth', 1)}>Compounding</button>
+            <button type="button" aria-pressed={!mechanics.compoundGrowth} data-tip="Each step adds the same amount of growth." onClick={() => change('compoundGrowth', 0)}>Linear</button>
+            <button type="button" aria-pressed={Boolean(mechanics.compoundGrowth)} data-tip="Each step adds a share of the current size, so growth speeds up over time, as in living tissue." onClick={() => change('compoundGrowth', 1)}>Compounding</button>
           </div>
           <Slider label="Bend stiffness" value={mechanics.bending} display={percent(mechanics.bending, 1)} min={0} max={0.3} step={0.005}
-            title="Higher values resist tight folds. Lower values allow finer folds when the mesh is fine enough." onChange={value => change('bending', value)} />
-          <label title="Stop playback automatically.">Stop at
+            title="How much the sheet resists bending. Higher gives broad, smooth waves; lower allows tight ruffles when the mesh is fine enough." onChange={value => change('bending', value)} />
+          <label data-tip="Pause playback automatically when the form reaches a size, a strain, or a timeline step.">Stop at
             <select value={stopAt.kind} onChange={event => {
               const kind = event.currentTarget.value as StopAt['kind']
               setStopAt({ kind, value: kind === 'size' ? 2 : kind === 'step' ? Math.max(100, step + 500) : kind === 'strain' ? 3 : 0 })
@@ -557,23 +574,23 @@ export function App() {
             </select>
           </label>
           {stopAt.kind === 'size' && <Slider label="Stop at size" value={stopAt.value} display={`${stopAt.value.toFixed(2)}×`} min={1.05} max={5} step={0.05}
-            title="Bounding size compared with the starting surface." onChange={value => setStopAt({ kind: 'size', value })} />}
+            title="Stop when the form is this many times its starting size." onChange={value => setStopAt({ kind: 'size', value })} />}
           {stopAt.kind === 'strain' && <Slider label="Stop at strain" value={stopAt.value} display={percent(stopAt.value)} min={0.1} max={10} step={0.1}
-            title="Maximum target strain in the growth field." onChange={value => setStopAt({ kind: 'strain', value })} />}
-          {stopAt.kind === 'step' && <label>Stop at step<input className="number-input" type="number" min="1" step="50" value={stopAt.value}
+            title="Stop when the most-grown area reaches this strain." onChange={value => setStopAt({ kind: 'strain', value })} />}
+          {stopAt.kind === 'step' && <label data-tip="Stop when the timeline reaches this step.">Stop at step<input className="number-input" type="number" min="1" step="50" value={stopAt.value}
             onChange={event => setStopAt({ kind: 'step', value: Math.max(1, Math.round(Number(event.currentTarget.value) || 1)) })} /></label>}
         </section>
 
-        <section><details><summary>Gravity{mechanics.gravity > 0 ? ` · ${percent(mechanics.gravity)}` : ''}</summary>
+        <section><details><summary data-tip="Pull the growing area in one direction, so folds droop or lean. The rest of the model stays put.">Gravity{mechanics.gravity > 0 ? ` · ${percent(mechanics.gravity)}` : ''}</summary>
           <Slider label="Strength" value={mechanics.gravity} display={percent(mechanics.gravity)} min={0} max={1} step={0.01}
-            title="Pulls on the growth field only. The rest of the model stays in place." onChange={value => change('gravity', value)} />
+            title="How hard the pull is. It acts on the growth field only." onChange={value => change('gravity', value)} />
           <Slider label="Tilt from down" value={mechanics.gravityTilt} display={`${mechanics.gravityTilt}°`} min={0} max={180} step={1}
             title="Aims the pull away from straight down." onChange={value => change('gravityTilt', value)} />
           <Slider label="Heading" value={mechanics.gravityHeading} display={`${mechanics.gravityHeading}°`} min={0} max={359} step={1}
             title="Rotates a tilted pull around the vertical axis." onChange={value => change('gravityHeading', value)} />
         </details></section>
 
-        <section><details><summary>Contact in growth field</summary>
+        <section><details><summary data-tip="How growing folds push apart when they touch, so the surface never passes through itself.">Contact in growth field</summary>
           <Slider label="Repel distance" value={mechanics.repelDistance}
             display={input ? `${(mechanics.repelDistance * input.scale).toFixed(1)} mm` : percent(mechanics.repelDistance, 1)}
             min={0.004} max={0.04} step={0.001} title="How far apart folds in the growth field stay when they meet."
@@ -582,9 +599,9 @@ export function App() {
             title="How quickly touching folds are pushed back each step." onChange={value => change('repelStrength', value)} />
         </details></section>
 
-        <section><details open={detailLimit || undefined}><summary>Advanced</summary>
+        <section><details open={detailLimit || undefined}><summary data-tip="Mesh resolution, motion damping, and playback speed.">Advanced</summary>
           <Slider label="Damping" value={mechanics.damping} display={percent(mechanics.damping)} min={0.02} max={0.9} step={0.01}
-            title="Reduces lingering motion after the sheet bends." onChange={value => change('damping', value)} />
+            title="Calms wobbling after the sheet bends. Higher settles faster but looks stiffer." onChange={value => change('damping', value)} />
           <Slider label="Remesh edge length" value={mechanics.remeshLength} display={mechanics.remeshLength.toFixed(3)} min={0.09} max={0.25} step={0.005}
             title="Starting triangle size and split threshold. Smaller values hold smaller folds. Press Reset to apply to an STL."
             onChange={value => change('remeshLength', value)} />
@@ -592,10 +609,10 @@ export function App() {
             min={1} max={4} step={0.25} title="How many vertices growth can add. Higher limits keep folds refining but run slower."
             onChange={value => change('detailScale', value)} />
           <Slider label="Playback speed" value={stepsPerUpdate} display={`${stepsPerUpdate} ${stepsPerUpdate === 1 ? 'step' : 'steps'} per update`}
-            min={1} max={input ? 3 : 5} step={1} title="Steps calculated before each redraw." disabled={Boolean(manualQueue)}
+            min={1} max={input ? 3 : 5} step={1} title="Steps calculated before each redraw. Higher plays faster but less smoothly." disabled={Boolean(manualQueue)}
             onChange={value => (input ? setImportSpeed : setSpeed)(value)} />
           <Slider label="Manual step size" value={manualSteps} display={String(manualSteps)} min={10} max={input ? 30 : 100} step={10}
-            title="Steps the Step button runs." onChange={value => (input ? setImportBatch : setBatch)(value)} />
+            title="How many steps the Step button runs." onChange={value => (input ? setImportBatch : setBatch)(value)} />
         </details></section>
       </TabPanel>
     </aside>
@@ -608,6 +625,16 @@ export function App() {
           placing={tool === 'point' ? `Placing ${selectedLayer?.name ?? 'point'}` : tool === 'line' ? `Drawing ${selectedLayer?.name ?? 'line'}` : null}
           onTool={setTool} onBrush={setBrush} onUndo={undoStroke} onOverlay={setOverlay} onView={setView} onGhost={setGhost}
           onFrame={() => setCameraKey(k => k + 1)} />
+        {showQuickStart && <section className="quick-start" aria-labelledby="quick-start-title">
+          <h2 id="quick-start-title">Quick start</h2>
+          <ol>
+            <li><b>Pick a surface:</b> the disk, or Upload STL.</li>
+            <li><b>Choose where it grows:</b> layers in Growth field, or Paint on the model.</li>
+            <li><b>Press Play growth</b> or Space. Drag the timeline to look back.</li>
+          </ol>
+          <p>Hover any control to see what it does.</p>
+          <button type="button" className="primary" data-tip="Hide this guide. Reopen it from the ? button." onClick={closeQuickStart}>Got it</button>
+        </section>}
       </Viewport>
       <Timeline marks={snapshots.map(s => s.mark)} viewing={viewing} step={step} strain={disk.strain} every={every} active={active}
         phases={phases} phaseIndex={phaseIndex} onScrub={scrub} onSnapshot={takeSnapshot} onEvery={setEvery}
@@ -616,20 +643,20 @@ export function App() {
 
     <aside className="metrics-panel disk-inspector side-panel" aria-label="Form and output">
       <Tabs label="Form and output" idBase="output" value={rightTab} onChange={setRightTab} tabs={[
-        { id: 'form', label: 'Form', title: 'Measurements and fold size' },
-        { id: 'explore', label: 'Explore', title: 'Presets and variants' },
-        { id: 'file', label: 'File', title: 'Save, open, and export', badge: unsaved ? 'unsaved changes' : undefined },
+        { id: 'form', label: 'Form', title: 'Measurements of the current shape, Fold size, and solver stats.' },
+        { id: 'explore', label: 'Explore', title: 'Start from a preset, or grow four variants and keep the one you like.' },
+        { id: 'file', label: 'File', title: 'Save or open a project, and export OBJ or STL.', badge: unsaved ? 'unsaved changes' : undefined },
       ]} />
       <TabPanel idBase="output" id="form" value={rightTab}>
         <section><h2>Form</h2>
           <dl className="readouts">
-            {waves.map(wave => <div key={wave.name}><dt>Waves · {wave.name.toLowerCase()}</dt><dd>{wave.count}</dd></div>)}
-            <div><dt>Size</dt><dd>{size.multiple.toFixed(2)}×</dd></div>
-            {size.millimeters && <div><dt>Dimensions</dt><dd>{size.millimeters.map(v => Math.round(v)).join(' × ')} mm</dd></div>}
-            <div><dt>Target strain</dt><dd>{percent(disk.strain)}</dd></div>
+            {waves.map(wave => <div key={wave.name}><dt data-tip="How many waves run around this rim, counted from its ups and downs.">Waves · {wave.name.toLowerCase()}</dt><dd>{wave.count}</dd></div>)}
+            <div><dt data-tip="Bounding size compared with the starting surface.">Size</dt><dd>{size.multiple.toFixed(2)}×</dd></div>
+            {size.millimeters && <div><dt data-tip="Bounding box of the current shape, in the STL's millimeters.">Dimensions</dt><dd>{size.millimeters.map(v => Math.round(v)).join(' × ')} mm</dd></div>}
+            <div><dt data-tip="How far the most-grown area has been told to expand. 100% means its edges want to be twice their starting length.">Target strain</dt><dd>{percent(disk.strain)}</dd></div>
           </dl>
           <Slider label="Fold size" value={foldSize} display={foldSize < 0.33 ? 'Fine' : foldSize < 0.66 ? 'Medium' : 'Broad'} min={0} max={1} step={0.05}
-            title="Sets rim growth width and bend stiffness together. Finer folds need a narrow field and a soft sheet." disabled={!rimLayers.length}
+            title={rimLayers.length ? 'Sets rim growth width and bend stiffness together. Finer folds need a narrow field and a soft sheet.' : 'Add a rim layer to use Fold size.'} disabled={!rimLayers.length}
             onChange={setFoldSize} />
           <p className="hint">{rimLayers.length && rimLayers[0].kind === 'rim'
             ? `Rim width ${percent(rimLayers[0].width)} · bend ${percent(mechanics.bending, 1)}. Smaller folds also need a small Remesh edge length.`
@@ -637,13 +664,13 @@ export function App() {
         </section>
         <section><h2>Stats</h2>
           <dl>
-            <div><dt>Timeline step</dt><dd>{step}</dd></div>
-            <div><dt>Edge splits</dt><dd>{disk.splits}</dd></div>
-            <div><dt>Triangles</dt><dd>{(disk.indices.length / 3).toLocaleString()}</dd></div>
-            <div><dt>Vertices</dt><dd>{(disk.positions.length / 3).toLocaleString()} / {disk.growthBudget.toLocaleString()}</dd></div>
-            <div><dt>Contact corrections · last step</dt><dd>{disk.lastContactCorrections}</dd></div>
-            <div><dt>Blocked steps</dt><dd>{disk.rejectedSteps}</dd></div>
-            <div><dt>Growth speed after contact</dt><dd>{Math.round(disk.growthThrottle * 100)}%</dd></div>
+            <div><dt data-tip="Steps run so far, including blocked ones.">Timeline step</dt><dd>{step}</dd></div>
+            <div><dt data-tip="Edges split to add detail as the surface grows.">Edge splits</dt><dd>{disk.splits}</dd></div>
+            <div><dt data-tip="Triangles in the surface now.">Triangles</dt><dd>{(disk.indices.length / 3).toLocaleString()}</dd></div>
+            <div><dt data-tip="Vertices now, and the most growth can add. Raise the limit under Simulation › Advanced.">Vertices</dt><dd>{(disk.positions.length / 3).toLocaleString()} / {disk.growthBudget.toLocaleString()}</dd></div>
+            <div><dt data-tip="Places where touching folds were pushed apart in the last step.">Contact corrections · last step</dt><dd>{disk.lastContactCorrections}</dd></div>
+            <div><dt data-tip="Steps undone because folds would have passed through each other.">Blocked steps</dt><dd>{disk.rejectedSteps}</dd></div>
+            <div><dt data-tip="Growth slows after a blocked step, then recovers. 100% is full speed.">Growth speed after contact</dt><dd>{Math.round(disk.growthThrottle * 100)}%</dd></div>
           </dl>
           {slowed && <p className="hint">Blocked steps slowed growth so folds don't pass through each other. A larger Repel distance usually means fewer blocked steps.</p>}
           {detailLimit && <p className="hint">Mesh detail limit reached. Raise it under Simulation › Advanced to keep refining.</p>}
@@ -652,7 +679,7 @@ export function App() {
       <TabPanel idBase="output" id="explore" value={rightTab}>
         <section><h2>Presets</h2>
           <div className="preset-list-compact">
-            {PRESETS.map(preset => <button key={preset.id} type="button" className="preset-row" title={preset.description} onClick={() => applyPreset(preset.id)}>
+            {PRESETS.map(preset => <button key={preset.id} type="button" className="preset-row" data-tip={`${preset.description} Replaces your layers and growth settings; the shape is kept.`} onClick={() => applyPreset(preset.id)}>
               <PresetGlyph id={preset.id} />
               <span><b>{preset.name}</b><small>{preset.description}</small></span>
             </button>)}
@@ -670,8 +697,10 @@ export function App() {
           }} />
           <p className="hint">{unsaved ? 'Unsaved changes since the last save.' : 'All changes saved.'}</p>
           <div className="button-row">
-            <button disabled={loading || active} title="Save shape, layers, and settings (⌘S)" onClick={() => void saveProject()}>Save project</button>
-            <button disabled={loading || active} onClick={() => guard('Open another project?', 'Discard and open', () => projectRef.current?.click())}>Open project</button>
+            <button disabled={loading || active} data-key="⌘S" onClick={() => void saveProject()}
+              data-tip={active ? 'Stop the simulation to save.' : 'Save the shape, layers, and settings as an editable project file.'}>Save project</button>
+            <button disabled={loading || active} data-tip={active ? 'Stop the simulation to open a project.' : 'Open a saved .growthstudio.json project. Growth Lab projects open too.'}
+              onClick={() => guard('Open another project?', 'Discard and open', () => projectRef.current?.click())}>Open project</button>
           </div>
           {active && <p className="hint">Stop the simulation to save, open, or export.</p>}
           {projectStatus && <p className="hint" role="status">{projectStatus}</p>}
@@ -679,36 +708,42 @@ export function App() {
         </section>
         <section><h2>Export mesh</h2>
           {input && <>
-            <label><span>Center exported mesh <input type="checkbox" checked={centerExport}
+            <label data-tip="Move the exported mesh to the origin instead of keeping its position from the STL."><span>Center exported mesh <input type="checkbox" checked={centerExport}
               onChange={event => { setCenterExport(event.currentTarget.checked); setExportStatus('') }} /></span></label>
             <p className="hint">{input.sourceCenter ? 'Exports keep the STL coordinates unless you center the mesh.'
               : 'This project predates coordinate preservation. Reimport the original STL to use its coordinates.'}</p>
           </>}
           <div className="button-row">
-            <button disabled={active} onClick={() => void exportMesh('obj')}>Export OBJ</button>
-            <button disabled={active} onClick={() => void exportMesh('stl')}>Export STL</button>
+            <button disabled={active} data-tip={active ? 'Stop the simulation to export.' : 'Save the current surface as an OBJ mesh.'} onClick={() => void exportMesh('obj')}>Export OBJ</button>
+            <button disabled={active} data-tip={active ? 'Stop the simulation to export.' : 'Save the current surface as a binary STL for CAD or slicing. It is an open sheet, so add thickness before printing.'}
+              onClick={() => void exportMesh('stl')}>Export STL</button>
           </div>
           <p className="hint" role="status">{exportStatus || 'The surface is an open sheet and may need thickness before printing.'}</p>
         </section>
       </TabPanel>
     </aside>
-    <footer className="spike-footer">{input ? 'STL surface · crease-preserving remesh' : 'Default disk'} · Press ? for shortcuts</footer>
+    <footer className="spike-footer">{input ? 'STL surface · crease-preserving remesh' : 'Default disk'} · Hover any control to see what it does · Press ? for shortcuts</footer>
 
     {pending && <Modal role="alertdialog" labelledBy="confirm-title" describedBy="confirm-body" onClose={() => setPending(null)}>
         <h2 id="confirm-title">{pending.title}</h2>
         <p id="confirm-body" className="hint">Unsaved growth and edits in the current design will be lost.</p>
         <div className="confirm-actions">
-          <button type="button" data-autofocus onClick={() => setPending(null)}>Cancel</button>
-          <button type="button" title="Save the project file, then continue." onClick={() => { const { run } = pending; setPending(null); void saveProject().then(saved => { if (saved) run() }) }}>Save project first</button>
-          <button type="button" className="primary" onClick={() => { const { run } = pending; setPending(null); run() }}>{pending.confirm}</button>
+          <button type="button" data-autofocus data-tip="Keep working on the current design." onClick={() => setPending(null)}>Cancel</button>
+          <button type="button" data-tip="Save the project file, then continue." onClick={() => { const { run } = pending; setPending(null); void saveProject().then(saved => { if (saved) run() }) }}>Save project first</button>
+          <button type="button" className="primary" data-tip="Discard unsaved changes and continue." onClick={() => { const { run } = pending; setPending(null); run() }}>{pending.confirm}</button>
         </div>
     </Modal>}
 
     {showHelp && <Modal label="Keyboard shortcuts" onClose={() => setShowHelp(false)}>
         <h2>Keyboard shortcuts</h2>
         <dl>{SHORTCUTS.map(([key, action]) => <div key={key}><dt><kbd>{key}</kbd></dt><dd>{action}</dd></div>)}</dl>
-        <button type="button" className="wide" data-autofocus onClick={() => setShowHelp(false)}>Close</button>
+        <p className="hint">Hover any control, or move to it with Tab, to see what it does.</p>
+        <div className="confirm-actions">
+          <button type="button" data-tip="Show the three-step guide over the 3D view again." onClick={() => { setShowHelp(false); setShowQuickStart(true) }}>Show quick start</button>
+          <button type="button" className="primary" data-autofocus onClick={() => setShowHelp(false)}>Close</button>
+        </div>
     </Modal>}
+    <TooltipLayer />
   </main>
 }
 

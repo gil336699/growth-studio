@@ -1,5 +1,13 @@
 # Growth Studio Changelog
 
+## 0.4.0 2026-11-07
+
+- Every control shows a short description on hover or keyboard focus, with its shortcut. The tooltip appears after a short pause, then right away as you move along a row of controls. It replaces the browser's slow native tooltips, which some embedded browsers don't show.
+- Unavailable buttons say why: Play and Step explain what to turn on, Undo says there is nothing to undo, and Save or Export ask you to stop the simulation first.
+- Readouts such as Target strain, Blocked steps, and Vertices have a dotted underline and explain themselves on hover.
+- Add a layer is a row of buttons instead of a menu, and each one describes its layer type. Layer rows describe their type too.
+- A quick start guide shows three steps on the first visit. Reopen it from the ? button.
+
 ## 0.3.0 2026-11-07
 
 - New layout. The left panel has the starting surface at the top and two tabs: Growth field (layers) and Simulation. The right panel has Form, Explore (presets and variants), and File tabs. Each tab scrolls on its own, so the tabs stay in reach. Before, each panel was about 2,000 px tall.
