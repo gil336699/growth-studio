@@ -191,6 +191,8 @@ input[type='range'] { width: 100%; accent-color: #ff6757; }
 .layer-eye { min-height: 32px; border: 0; background: transparent; color: var(--disk-accent); font-size: 11px; font-weight: 700; }
 .layer-eye[aria-pressed='false'] { color: #9aa8b5; }
 .layer-name { min-height: 40px; display: grid; justify-content: stretch; justify-items: start; gap: 1px; border: 0; background: transparent; text-align: left; padding: 4px 0; }
+.layer-name { min-width: 0; }
+.layer-name span, .layer-name small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .layer-name span { font-weight: 700; }
 .layer-name small { color: #60748a; font-weight: 500; font-size: 11px; }
 .layer-editor { margin-top: 10px; padding: 10px; border: 1px solid #dae2e9; border-radius: 8px; background: #fff; }
@@ -242,3 +244,6 @@ kbd { display: inline-block; padding: 2px 6px; border: 1px solid #c7d2dd; border
 
 .confirm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
 .confirm-actions .primary { grid-column: 1 / -1; }
+
+.overlap-warning { margin-top: 10px; padding: 10px; border: 1px solid #e3b8b2; border-radius: 8px; background: #fdf3f1; color: #6b2a22; font-size: 12px; line-height: 1.45; }
+.overlap-warning p { margin: 0 0 6px; }

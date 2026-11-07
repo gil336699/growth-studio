@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Vector3 } from 'three'
 import { LayersPanel } from './components/LayersPanel'
+import { Modal } from './components/Modal'
 import { Timeline, type SnapshotMark } from './components/Timeline'
 import { Variants } from './components/Variants'
 import { Viewport, type Disk, type StrokePoint } from './components/Viewport'
@@ -16,6 +17,7 @@ import { saveFile, type SaveResult } from './lib/saveFile'
 import { createGrowingDisk, DISK_DEFAULTS, diskGravityDirection, type BrushMode, type DiskSnapshot } from './physics/growingDisk'
 import type { GrowthLayer, Vec3 } from './physics/growthLayers'
 import { growthExportPositions, readGrowthStl, type GrowthStlSource } from './physics/growthStl'
+import { MAX_TRIANGLES, SLOW_TRIANGLES, stlTriangleCount } from './lib/stl'
 
 type Mechanics = typeof DISK_DEFAULTS
 type Snap = { mark: SnapshotMark; snapshot: DiskSnapshot }
@@ -153,12 +155,18 @@ export function App() {
     setLoading(true)
     setImportError('')
     try {
-      const source = readGrowthStl(await file.arrayBuffer(), file.name)
+      const buffer = await file.arrayBuffer()
+      const triangles = stlTriangleCount(buffer)
+      if (triangles > MAX_TRIANGLES) {
+        throw new Error(`This STL has about ${triangles.toLocaleString()} triangles, more than Growth Studio can prepare (${MAX_TRIANGLES.toLocaleString()}). Reduce it in your CAD tool, for example Fusion's Mesh › Reduce, to under ${SLOW_TRIANGLES.toLocaleString()} for interactive growth.`)
+      }
+      const source = readGrowthStl(buffer, file.name)
       const fresh = freshSurface(source, null)
       setInput(source)
       adopt(fresh)
       setCenterExport(false)
-      setView(current => current === 'fans' ? 'fans' : 'cells')
+      // Cell outlines on a very dense mesh are slow and hide the form, so start large meshes on the plain surface.
+      setView(current => fresh.indices.length / 3 > SLOW_TRIANGLES ? 'smooth' : current === 'fans' ? 'fans' : 'cells')
       setTool('orbit')
       setOverlay('field')
       setSavedPoint({ step: 0, edits })
@@ -497,7 +505,16 @@ export function App() {
         </div>
         {importError && <p className="hint" role="alert">{importError}</p>}
         {input && <p className="hint">{rims.length} open {rims.length === 1 ? 'rim' : 'rims'} found. Prepared with {disk.preparationSplits} edge splits and {disk.preparationFlips} balancing flips.</p>}
-        {disk.initialOverlap && <p className="hint" role="alert">The starting surface overlaps itself. Repair intersecting or unwelded faces in the STL before growing it.</p>}
+        {disk.indices.length / 3 > SLOW_TRIANGLES && <div className="overlap-warning" role="status">
+          <p>This surface has {(disk.indices.length / 3).toLocaleString()} triangles. Each growth step can take seconds, and the app pauses while a step runs.</p>
+          <p>For interactive growth, reduce it below {SLOW_TRIANGLES.toLocaleString()} triangles, for example with Fusion's Mesh › Reduce.</p>
+        </div>}
+        {disk.initialOverlap && <div className="overlap-warning" role="alert">
+          <p>The starting surface crosses itself in {disk.startingCrossings.toLocaleString()} {disk.startingCrossings === 1 ? 'place' : 'places'}. This usually means several bodies were exported together, such as text on a tag.</p>
+          <p>In Fusion, combine the bodies (Modify › Combine) or export one body. Or grow anyway: existing crossings are left as they are and only new ones are blocked.</p>
+          <button type="button" className="wide" onClick={() => { disk.ignoreStartingOverlaps(); touch(); setTick(value => value + 1) }}>Grow anyway</button>
+        </div>}
+        {disk.ignoringOverlaps && <p className="hint">Existing crossings in the starting surface are ignored. New crossings are still blocked.</p>}
       </section>
 
       <LayersPanel layers={layers} selectedId={selectedLayer?.id ?? null} rims={rims} tool={tool} timelineEnd={Math.max(step, 600)}
@@ -595,7 +612,7 @@ export function App() {
       <Viewport disk={disk} tick={tick} view={view} overlay={overlay} ghost={ghost} imported={Boolean(input)} running={running}
         tool={tool} canEdit={!loading} brush={brush} rimEdges={rimEdges} layers={layers} selectedLayerId={selectedLayer?.id ?? null}
         onStroke={onStroke} onPlace={onPlace} gravityArrow={gravityArrow} cameraKey={cameraKey} caption={caption} />
-      <Timeline marks={snapshots.map(s => s.mark)} viewing={viewing} step={step} every={every} active={active}
+      <Timeline marks={snapshots.map(s => s.mark)} viewing={viewing} step={step} strain={disk.strain} every={every} active={active}
         phases={phases} phaseIndex={phaseIndex} onScrub={scrub} onSnapshot={takeSnapshot} onEvery={setEvery}
         onPhases={next => { setPhases(next); touch() }} onRunPhases={runPhases} />
     </section>
@@ -694,25 +711,21 @@ export function App() {
     </aside>
     <footer className="spike-footer">{input ? 'STL surface · crease-preserving remesh' : 'Default disk'} · Press ? for shortcuts</footer>
 
-    {pending && <div className="help-backdrop" role="presentation" onClick={() => setPending(null)}>
-      <div className="help-card" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-body" onClick={event => event.stopPropagation()}>
+    {pending && <Modal role="alertdialog" labelledBy="confirm-title" describedBy="confirm-body" onClose={() => setPending(null)}>
         <h2 id="confirm-title">{pending.title}</h2>
         <p id="confirm-body" className="hint">Unsaved growth and edits in the current design will be lost.</p>
         <div className="confirm-actions">
-          <button type="button" autoFocus onClick={() => setPending(null)}>Cancel</button>
+          <button type="button" data-autofocus onClick={() => setPending(null)}>Cancel</button>
           <button type="button" title="Save the project file, then continue." onClick={() => { const { run } = pending; setPending(null); void saveProject().then(saved => { if (saved) run() }) }}>Save project first</button>
           <button type="button" className="primary" onClick={() => { const { run } = pending; setPending(null); run() }}>{pending.confirm}</button>
         </div>
-      </div>
-    </div>}
+    </Modal>}
 
-    {showHelp && <div className="help-backdrop" role="presentation" onClick={() => setShowHelp(false)}>
-      <div className="help-card" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" onClick={event => event.stopPropagation()}>
+    {showHelp && <Modal label="Keyboard shortcuts" onClose={() => setShowHelp(false)}>
         <h2>Keyboard shortcuts</h2>
         <dl>{SHORTCUTS.map(([key, action]) => <div key={key}><dt><kbd>{key}</kbd></dt><dd>{action}</dd></div>)}</dl>
-        <button type="button" className="wide" onClick={() => setShowHelp(false)}>Close</button>
-      </div>
-    </div>}
+        <button type="button" className="wide" data-autofocus onClick={() => setShowHelp(false)}>Close</button>
+    </Modal>}
   </main>
 }
 

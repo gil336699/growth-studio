@@ -38,6 +38,8 @@ export type DiskSnapshot = {
   paintErase?: [number, number][]
   // Timeline step: every attempted step, grow or relax.
   clock?: number
+  // Vertices where the starting surface already crossed itself and the designer chose to grow anyway.
+  ignoredOverlaps?: number[]
   // Legacy field settings, converted to layers when opened.
   brushOverrides?: [number, number][]
   disabledRims?: number[]
@@ -102,6 +104,11 @@ export function createGrowingDisk(input?: { positions: Float32Array; indices: Ui
   }
   let paint: PaintMaps = { add: sparse(snapshot?.paintAdd, field.length), erase: sparse(snapshot?.paintErase, field.length) }
   let contactHeat = new Float32Array(field.length)
+  let ignoredOverlaps: Uint8Array | null = null
+  if (snapshot?.ignoredOverlaps) {
+    ignoredOverlaps = new Uint8Array(field.length)
+    for (const vertex of snapshot.ignoredOverlaps) if (vertex < field.length) ignoredOverlaps[vertex] = 1
+  }
   let clock = snapshot?.clock ?? (snapshot ? snapshot.acceptedSteps + snapshot.rejectedSteps : 0)
   const spatial = new Map<string, Float32Array>()
   let fieldActive = false
@@ -172,6 +179,7 @@ export function createGrowingDisk(input?: { positions: Float32Array; indices: Ui
   let gravityDirection = diskGravityDirection(mechanics)
   const contactSettings = () => ({ distance: mechanics.repelDistance, strength: mechanics.repelStrength, field })
   let touched = new Uint8Array(0)
+  let active = new Uint8Array(0)
   let acceptedSteps = snapshot?.acceptedSteps ?? 0
   const preparationBudget = Math.max(900, rest.length / 3 + (input ? 300 : 0))
   let growthBudget = snapshot?.growthBudget ?? preparationBudget
@@ -200,6 +208,7 @@ export function createGrowingDisk(input?: { positions: Float32Array; indices: Ui
     candidates.sort((a, b) => b.size - a.size)
     const usedFaces = new Set<number>()
     const replacement = new Map<number, number[]>()
+    const splitEnds = new Map<number, [number, number]>()
     const nextPositions = Array.from(positions), nextPrevious = Array.from(previous)
     const nextGrowth = Array.from(localGrowth), nextAdd = Array.from(paint.add), nextErase = Array.from(paint.erase)
     const nextHeat = Array.from(contactHeat)
@@ -210,6 +219,7 @@ export function createGrowingDisk(input?: { positions: Float32Array; indices: Ui
       if (adjacent.some(({ offset, other }) => usedFaces.has(offset)
         || (preparing && Math.max(distance(a, other), distance(b, other)) > size))) continue
       const middle = nextPositions.length / 3
+      splitEnds.set(middle, [a, b])
       nextGrowth.push((localGrowth[a] + localGrowth[b]) / 2)
       nextAdd.push((paint.add[a] + paint.add[b]) / 2)
       nextErase.push((paint.erase[a] + paint.erase[b]) / 2)
@@ -238,7 +248,16 @@ export function createGrowingDisk(input?: { positions: Float32Array; indices: Ui
     accepted = positions.slice()
     uv = Float32Array.from(pointsToUV())
     bend = createFlatShellBending(indices, input ? Float32Array.from(rest) : undefined)
+    if (ignoredOverlaps) {
+      // Split vertices inherit the exemption of either end of their edge.
+      const next = new Uint8Array(positions.length / 3)
+      next.set(ignoredOverlaps)
+      for (let v = ignoredOverlaps.length; v < next.length; v++) next[v] = 0
+      ignoredOverlaps = next
+      for (const [middle, [a, b]] of splitEnds) if (ignoredOverlaps[a] || ignoredOverlaps[b]) ignoredOverlaps[middle] = 1
+    }
     intersects = createDiskSelfContact(positions, indices, referencePositions)
+    intersects.setExempt(ignoredOverlaps)
     rebuildLinks()
   }
   if (input && !snapshot) {
@@ -281,7 +300,9 @@ export function createGrowingDisk(input?: { positions: Float32Array; indices: Ui
   }
   const baseBudget = snapshot?.baseBudget ?? growthBudget
   const preparationSplits = snapshot?.preparationSplits ?? splits
-  const initialOverlap = Boolean((input || snapshot) && intersects())
+  intersects.setExempt(ignoredOverlaps)
+  const startOverlap = Boolean((input || snapshot) && intersects())
+  let startingCrossings: number | null = null
   splits = snapshot?.splits ?? 0
   function openRims() {
     if (rimIndices === indices && rims.length) return rims
@@ -416,7 +437,25 @@ export function createGrowingDisk(input?: { positions: Float32Array; indices: Ui
     preparationSplits,
     preparationFlips,
     preparationPatches,
-    initialOverlap,
+    // True while the starting surface crosses itself and the crossings are not yet ignored.
+    get initialOverlap() { return startOverlap && !ignoredOverlaps },
+    // Number of crossing face pairs in the starting surface, counted on first request.
+    get startingCrossings() { return startingCrossings ??= startOverlap ? intersects.crossings().pairs : 0 },
+    get ignoringOverlaps() { return Boolean(ignoredOverlaps) },
+    // Grow anyway: leave existing crossings alone and block only new ones.
+    ignoreStartingOverlaps(rings = 2) {
+      const { vertices } = intersects.crossings()
+      ignoredOverlaps = new Uint8Array(positions.length / 3)
+      for (const vertex of vertices) ignoredOverlaps[vertex] = 1
+      // Include a margin around each crossing, since faces next to it can cross as soon as anything moves.
+      for (let ring = 0; ring < rings; ring++) {
+        const grown = ignoredOverlaps.slice()
+        ignoredOverlaps.forEach((flag, vertex) => { if (flag) for (const next of neighbors[vertex]) grown[next] = 1 })
+        ignoredOverlaps = grown
+      }
+      intersects.setExempt(ignoredOverlaps)
+      return ignoredOverlaps.reduce((total, flag) => total + flag, 0)
+    },
     snapshot(): DiskSnapshot {
       const pairs = (values: Float32Array) => {
         const out: [number, number][] = []
@@ -431,6 +470,7 @@ export function createGrowingDisk(input?: { positions: Float32Array; indices: Ui
         field: Array.from(field),
         localGrowth: Array.from(localGrowth),
         layers: structuredClone(layers),
+        ...(ignoredOverlaps ? { ignoredOverlaps: [...ignoredOverlaps.keys()].filter(v => ignoredOverlaps![v]) } : {}),
         paintAdd: pairs(paint.add),
         paintErase: pairs(paint.erase),
         clock,
@@ -557,7 +597,14 @@ export function createGrowingDisk(input?: { positions: Float32Array; indices: Ui
         bend(positions, mechanics.bending)
         holdAnchors()
       }
-      lastContactCorrections = intersects.repel(accepted, contactSettings(), touched)
+      // Search for contact only where the sheet grows, moved this step, or touched recently.
+      if (active.length !== field.length) active = new Uint8Array(field.length)
+      for (let v = 0; v < field.length; v++) {
+        const p = v * 3
+        active[v] = field[v] > 0 || contactHeat[v] > 0.05 || Math.abs(positions[p] - accepted[p]) + Math.abs(positions[p + 1] - accepted[p + 1])
+          + Math.abs(positions[p + 2] - accepted[p + 2]) > 1e-6 ? 1 : 0
+      }
+      lastContactCorrections = intersects.repel(accepted, contactSettings(), touched, active)
       let overlaps = intersects(lastContactCorrections > 0)
       // Backtrack displacement and target growth together when contact is detected.
       for (let retry = 0; overlaps && retry < 6; retry++) {
@@ -576,7 +623,7 @@ export function createGrowingDisk(input?: { positions: Float32Array; indices: Ui
         // Retrying from an identical state repeats the same rejection, so open space at the
         // contact before the next attempt. Keep the result only if it stays free of overlap.
         for (let pass = 0; pass < 4; pass++) {
-          const corrections = intersects.repel(accepted, contactSettings(), touched)
+          const corrections = intersects.repel(accepted, contactSettings(), touched, active)
           if (!corrections) break
           // In tightly packed folds a full push can cross a neighboring fold. Back it off until it stays clear.
           let clear = !intersects()

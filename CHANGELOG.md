@@ -1,5 +1,13 @@
 # Growth Studio Changelog
 
+## 0.2.3 2026-11-06
+
+- Contact is checked only where the sheet grows, moved, or recently touched. A step on a 181,000-triangle STL dropped from 51 seconds to under a second, with the same fold spacing on the weave vase.
+- STLs that cross themselves, such as several bodies exported together, explain the problem and offer Grow anyway: existing crossings and a small margin around them are left as they are, and only new crossings are blocked. The choice is saved with the project.
+- STLs above 30,000 triangles show a speed warning and open on the Surface view. STLs above 500,000 triangles are refused before preparation, with advice to reduce them.
+- Dialogs move focus inside, keep Tab within the dialog, and return focus to the button that opened them.
+- Long layer names are cut off with an ellipsis and limited to 40 characters. The timeline readout shows the current step unless you are viewing a snapshot.
+
 ## 0.2.2 2026-11-06
 
 - A layer that starts at a timeline step now becomes active at that step. Before, playback was unavailable at the start step and growth could not begin.

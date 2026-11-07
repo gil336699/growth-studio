@@ -5,6 +5,7 @@ type Props = {
   marks: SnapshotMark[]
   viewing: number | null
   step: number
+  strain: number
   every: number
   active: boolean
   phases: Phase[]
@@ -17,7 +18,7 @@ type Props = {
 }
 
 export function Timeline(props: Props) {
-  const { marks, viewing, step, every, active, phases, phaseIndex } = props
+  const { marks, viewing, step, strain, every, active, phases, phaseIndex } = props
   const last = marks.length - 1
   const shown = viewing ?? last
   const span = Math.max(1, step, marks.at(-1)?.step ?? 1)
@@ -38,7 +39,9 @@ export function Timeline(props: Props) {
       <input type="range" min="0" max={Math.max(0, last)} step="1" value={Math.max(0, shown)} disabled={marks.length < 2 || active}
         aria-label="Scrub snapshots" title="Drag to go back to an earlier snapshot."
         onChange={event => { const index = event.currentTarget.valueAsNumber; props.onScrub(index === last ? null : index) }} />
-      <span className="timeline-readout">{marks.length ? `${marks[Math.max(0, shown)].step} · ${Math.round(marks[Math.max(0, shown)].strain * 100)}%` : '—'}</span>
+      <span className="timeline-readout">{viewing !== null && marks[viewing]
+        ? `${marks[viewing].step} · ${Math.round(marks[viewing].strain * 100)}%`
+        : `${step} · ${Math.round(strain * 100)}%`}</span>
       <button type="button" disabled={active} onClick={props.onSnapshot} title="Keep the current shape as a snapshot.">Snapshot</button>
       <select value={every} aria-label="Snapshot interval" title="How often snapshots are kept automatically." onChange={event => props.onEvery(Number(event.currentTarget.value))}>
         {[20, 50, 100, 200].map(value => <option key={value} value={value}>Every {value}</option>)}

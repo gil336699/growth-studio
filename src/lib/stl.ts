@@ -6,6 +6,19 @@ import { analyzeMeshTopology } from './meshTopology'
 
 export class StlImportError extends Error {}
 
+// Triangle count from the file size and header, without parsing: exact for binary STL, estimated for ASCII.
+export function stlTriangleCount(buffer: ArrayBuffer) {
+  if (buffer.byteLength >= 84) {
+    const count = new DataView(buffer).getUint32(80, true)
+    if (84 + count * 50 === buffer.byteLength) return count
+  }
+  return Math.round(buffer.byteLength / 250)
+}
+
+// Above this, preparing the surface can lock the browser; above the warning, each step takes seconds.
+export const MAX_TRIANGLES = 500_000
+export const SLOW_TRIANGLES = 30_000
+
 export function prepareGeometry(source: BufferGeometry, fileName: string): HostModel & { sourceCenter: [number, number, number] } {
   const position = source.getAttribute('position')
   if (!position || position.count < 3 || position.count % 3 !== 0) {

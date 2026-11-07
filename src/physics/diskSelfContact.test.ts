@@ -99,3 +99,25 @@ it('pushes a vertex off a face one ring away when a sharp crease folds onto it',
   expect(contact.repel(positions.slice())).toBeGreaterThan(0)
   expect(positions[2]).toBeGreaterThan(0.005)
 })
+
+it('grows a surface that starts crossed once its existing crossings are ignored', async () => {
+  const { createGrowingDisk } = await import('./growingDisk')
+  // Two open square sheets that cut through each other.
+  const square = (offset: number[], axis: 'y' | 'z') => {
+    const p: number[] = []
+    for (const [u, v] of [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]]) p.push(offset[0] + u, offset[1] + (axis === 'y' ? v : 0), offset[2] + (axis === 'z' ? v : 0))
+    return p
+  }
+  const positions = Float32Array.from([...square([0, 0, 0], 'z'), ...square([0, 0, 0], 'y')])
+  const indices = Uint32Array.of(0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7)
+  const disk = createGrowingDisk({ positions, indices })
+  expect(disk.initialOverlap).toBe(true)
+  expect(disk.startingCrossings).toBeGreaterThan(0)
+  expect(disk.ignoreStartingOverlaps()).toBeGreaterThan(0)
+  expect(disk.initialOverlap).toBe(false)
+  for (let i = 0; i < 25; i++) disk.step(true)
+  expect(disk.strain).toBeGreaterThan(0)
+  const reopened = createGrowingDisk({ positions, indices }, undefined, disk.snapshot())
+  expect(reopened.initialOverlap).toBe(false)
+  expect(reopened.ignoringOverlaps).toBe(true)
+})

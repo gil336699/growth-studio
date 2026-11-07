@@ -108,7 +108,7 @@ export function LayersPanel(props: Props) {
           title={layer.visible ? 'Turn this layer off' : 'Turn this layer on'} onClick={() => update(layer.id, { visible: !layer.visible })}>
           {layer.visible ? 'On' : 'Off'}
         </button>
-        <button type="button" className="layer-name" onClick={() => props.onSelect(layer.id)}>
+        <button type="button" className="layer-name" title={layer.name} onClick={() => props.onSelect(layer.id)}>
           <span>{layer.name}</span>
           <small>{[layer.kind === 'rim' ? rimName(rims, layer.rim) : LAYER_LABELS[layer.kind],
             layer.kind === 'rim' && layer.lobes ? `${layer.lobes} lobes` : '',
@@ -125,7 +125,7 @@ export function LayersPanel(props: Props) {
     </label>
 
     {selected && <div className="layer-editor" aria-label={`${selected.name} settings`}>
-      <label>Name<input className="number-input" value={selected.name} maxLength={40} onChange={event => update(selected.id, { name: event.currentTarget.value })} /></label>
+      <label>Name<input className="number-input" value={selected.name} maxLength={40} onChange={event => update(selected.id, { name: event.currentTarget.value.slice(0, 40) })} /></label>
       <Slider label={selected.kind === 'noise' ? 'Variation' : 'Strength'} value={selected.strength} display={percent(selected.strength)}
         min={0} max={1} step={0.05} title={selected.kind === 'noise' ? 'How much the noise varies growth in other layers.' : 'How strongly this layer grows at its center.'}
         onChange={value => update(selected.id, { strength: value })} />

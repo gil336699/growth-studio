@@ -107,6 +107,7 @@ export function deserializeDiskProject(json: string) {
       || typeof project.showField !== 'boolean') throw invalid()
   } else if (!validLayers(disk.layers) || !pairs(disk.paintAdd, vertices) || !pairs(disk.paintErase, vertices)
     || !count(disk.clock)
+    || (disk.ignoredOverlaps !== undefined && (!Array.isArray(disk.ignoredOverlaps) || !disk.ignoredOverlaps.every(v => count(v, vertices - 1))))
     || (project.brush !== undefined && !validBrush(project.brush))
     || (project.overlay !== undefined && !['field', 'growth', 'contact', 'none'].includes(project.overlay))
     || (project.ghost !== undefined && typeof project.ghost !== 'boolean')

@@ -22,6 +22,20 @@ export function createDiskSelfContact(positions: Float32Array, indices: Uint32Ar
     neighbors[c].add(a).add(b)
   }
 
+  // Vertices where the starting surface already crossed itself. Faces touching them are not
+  // checked against each other, so only new crossings block a step.
+  let exempt: Uint8Array | null = null
+  const exemptFace = (offset: number) => Boolean(exempt && (exempt[collisionIndices[offset]]
+    || exempt[collisionIndices[offset + 1]] || exempt[collisionIndices[offset + 2]]))
+  const sharesVertex = (i: number, j: number) => {
+    for (let u = 0; u < 3; u++) {
+      for (let v = 0; v < 3; v++) {
+        if (collisionIndices[i + u] === collisionIndices[j + v]) return true
+      }
+    }
+    return false
+  }
+
   function intersects(refit = true) {
     if (refit) tree.refit()
     return tree.bvhcast(tree, identity, {
@@ -29,14 +43,27 @@ export function createDiskSelfContact(positions: Float32Array, indices: Uint32Ar
         if (first >= second) return false
         const i = first * 3
         const j = second * 3
-        for (let u = 0; u < 3; u++) {
-          for (let v = 0; v < 3; v++) {
-            if (collisionIndices[i + u] === collisionIndices[j + v]) return false
-          }
-        }
+        if (sharesVertex(i, j) || (exempt && exemptFace(i) && exemptFace(j))) return false
         return a.intersectsTriangle(b)
       },
     })
+  }
+
+  // Every crossing pair, and the vertices of the faces involved.
+  function crossings() {
+    tree.refit()
+    const vertices = new Set<number>()
+    let pairs = 0
+    tree.bvhcast(tree, identity, {
+      intersectsTriangles(a, b, first, second) {
+        const i = first * 3, j = second * 3
+        if (first >= second || sharesVertex(i, j) || !a.intersectsTriangle(b)) return false
+        pairs++
+        for (let k = 0; k < 3; k++) { vertices.add(collisionIndices[i + k]); vertices.add(collisionIndices[j + k]) }
+        return false
+      },
+    })
+    return { pairs, vertices: [...vertices] }
   }
 
   let clearance = CONTACT_DEFAULTS.distance
@@ -94,12 +121,13 @@ export function createDiskSelfContact(positions: Float32Array, indices: Uint32Ar
   }
 
   // Push apart nonlocal edges that come within clearance, keeping each pair on its last accepted side.
-  function repelEdges(previous: Float32Array, touched?: Uint8Array) {
+  function repelEdges(previous: Float32Array, touched?: Uint8Array, active?: Uint8Array) {
     tree.refit()
     const pairs: number[] = []
     const edgeCount = edgeEnds.length / 2
     for (let e1 = 0; e1 < edgeCount; e1++) {
       const u = edgeEnds[e1 * 2], v = edgeEnds[e1 * 2 + 1]
+      if (active && !active[u] && !active[v]) continue
       p1.fromArray(positions, u * 3)
       q1.fromArray(positions, v * 3)
       query.makeEmpty().expandByPoint(p1).expandByPoint(q1).expandByScalar(clearance)
@@ -113,7 +141,8 @@ export function createDiskSelfContact(positions: Float32Array, indices: Uint32Ar
             // Only edges that share an endpoint are skipped, so a sharp crease cannot fold through itself.
             if (a === u || a === v || b === u || b === v) continue
             const e2 = edgeIndex.get(edgeKey(a, b))!
-            if (e2 <= e1) continue
+            // Each pair is found from its lower edge, unless that edge is skipped as inactive.
+            if (e2 <= e1 && (!active || active[a] || active[b])) continue
             loadSegments(positions, e1, e2)
             const [s, t] = closestSegmentParameters()
             c1.copy(p1).addScaledVector(d1, s)
@@ -173,13 +202,15 @@ export function createDiskSelfContact(positions: Float32Array, indices: Uint32Ar
   // Find the closest nonlocal surface to each vertex. Collect pairs before
   // applying corrections so the BVH bounds stay valid throughout the queries.
   // Optionally marks every vertex moved by a correction in `touched`.
-  function repel(previous: Float32Array, contact?: ContactSettings, touched?: Uint8Array) {
+  // With `active`, only vertices that can move into contact are searched: large still regions are skipped.
+  function repel(previous: Float32Array, contact?: ContactSettings, touched?: Uint8Array, active?: Uint8Array) {
     settings = contact
     // Search far enough for whichever response is larger.
     clearance = Math.max(CONTACT_DEFAULTS.distance, contact?.distance ?? CONTACT_DEFAULTS.distance)
     tree.refit()
     offsets.fill(-1)
     for (let vertex = 0; vertex < neighbors.length; vertex++) {
+      if (active && !active[vertex]) continue
       point.fromArray(positions, vertex * 3)
       query.min.copy(point).addScalar(-clearance)
       query.max.copy(point).addScalar(clearance)
@@ -250,8 +281,8 @@ export function createDiskSelfContact(positions: Float32Array, indices: Uint32Ar
       if (touched) touched[vertex] = touched[a / 3] = touched[b / 3] = touched[c / 3] = 1
       corrections++
     }
-    return corrections + repelEdges(previous, touched)
+    return corrections + repelEdges(previous, touched, active)
   }
 
-  return Object.assign(intersects, { repel })
+  return Object.assign(intersects, { repel, crossings, setExempt(next: Uint8Array | null) { exempt = next } })
 }

@@ -30,3 +30,16 @@ describe('formatDimension', () => {
     expect(formatDimension(40.126)).toBe('40.1')
   })
 })
+
+describe('triangle count before import', () => {
+  it('reads binary STL counts exactly and estimates ASCII', async () => {
+    const { stlTriangleCount } = await import('./stl')
+    const binary = new ArrayBuffer(84 + 3 * 50)
+    new DataView(binary).setUint32(80, 3, true)
+    expect(stlTriangleCount(binary)).toBe(3)
+    const ascii = new TextEncoder().encode('solid x\n' + 'facet normal 0 0 1\n outer loop\n  vertex 0 0 0\n  vertex 1 0 0\n  vertex 0 1 0\n endloop\nendfacet\n'.repeat(40)).buffer
+    // The estimate assumes about 250 bytes per facet, typical of CAD exports; this sample is terser.
+    expect(stlTriangleCount(ascii)).toBeGreaterThan(10)
+    expect(stlTriangleCount(ascii)).toBeLessThan(80)
+  })
+})
