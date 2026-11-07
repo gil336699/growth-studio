@@ -2,6 +2,10 @@
 
 Growth Studio is a browser app for differential growth. Start from a flat disk or an open STL such as a Fusion vase base, decide where and when it grows, and watch the rim ruffle and fold. Save editable projects and export OBJ or STL back to CAD.
 
+**Use it online:** https://gil336699.github.io/growth-studio/
+
+Everything runs in your browser. Models you upload and the shapes you grow stay on your computer.
+
 ## Run
 
 Requirements: Node.js 22 or newer and a current desktop browser with WebGL.
@@ -14,6 +18,10 @@ npm run dev
 Open the address Vite prints, normally `http://localhost:5173`.
 
 To build static files you can host anywhere, run `npm run build`. The site is written to `dist/`. Preview it with `npm run preview`.
+
+## Publish
+
+Each push to `main` builds the app and publishes it to GitHub Pages through `.github/workflows/pages.yml`. The site is live about a minute later. The build uses relative paths, so `dist/` also works on any other static host, in a subfolder, or on a custom domain.
 
 ## Layout
 

@@ -1,5 +1,10 @@
 # Growth Studio Changelog
 
+## 0.5.1 2026-11-07
+
+- Growth Studio is online at https://gil336699.github.io/growth-studio/. Each push to `main` publishes the latest version to GitHub Pages.
+- The build uses relative paths, so it works from a subfolder, another static host, or a custom domain.
+
 ## 0.5.0 2026-11-07
 
 - New look in the style of Apple's Liquid Glass. The 3D view fills the window, and the app name, both panels, the tool bars, and the timeline float above it on translucent glass that blurs the model behind it.
