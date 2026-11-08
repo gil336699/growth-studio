@@ -4,6 +4,10 @@ Growth Studio is a browser app for differential growth. Start from a flat disk o
 
 **Use it online:** https://gil336699.github.io/growth-studio/
 
+![Growth Studio demo: the Bloom preset is applied to an imported vase, Play growth is pressed, the rim grows into ruffled lobes as the view orbits, and the timeline is scrubbed back and forth.](docs/demo.gif)
+
+The demo is sped up 10 times while the vase grows. [Watch it in HD (MP4)](docs/demo.mp4).
+
 Everything runs in your browser. Models you upload and the shapes you grow stay on your computer.
 
 ## Run
