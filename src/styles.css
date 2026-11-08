@@ -239,6 +239,8 @@ details[open] > summary::after { transform: rotate(45deg); }
 .layer-list li { display: grid; grid-template-columns: 50px minmax(0, 1fr) auto; align-items: center; padding-right: 12px; }
 .layer-list li + li, .inspector dl div + div, .preset-row + .preset-row { border-top: 1px solid var(--separator); }
 .layer-list li.selected { background: color-mix(in srgb, var(--tint) 14%, transparent); }
+/* A rim layer on a model without open rims has nothing to grow from. */
+.layer-list li.inactive .layer-name, .layer-list li.inactive b { opacity: .55; }
 .layer-list button, .layer-list button:hover:not(:disabled) { background: transparent; }
 .layer-eye { min-height: 44px; padding: 0; border-radius: 0; }
 .layer-name { min-width: 0; min-height: 44px; display: grid; justify-content: stretch; justify-items: start; gap: 1px; padding: 6px 0; border-radius: 0; text-align: left; }

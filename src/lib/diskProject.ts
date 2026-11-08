@@ -73,7 +73,7 @@ const validStop = (stop: StopAt) => ['none', 'size', 'step', 'strain'].includes(
 export function deserializeDiskProject(json: string) {
   const project = JSON.parse(json) as DiskProject & { schema: unknown; version: unknown }
   if (project?.schema !== SCHEMA || (project.version !== 1 && project.version !== VERSION)) {
-    throw new Error('Choose a supported Growth Studio project.')
+    throw new Error('It is not a Growth Studio project file.')
   }
   const legacy = project.version === 1
   const { disk, source } = project

@@ -187,8 +187,12 @@ export function App() {
       setOverlay('field')
       setSavedPoint({ step: 0, edits })
       setNotice('')
+      setProjectError('')
+      setProjectStatus('')
     } catch (error) {
-      setImportError(error instanceof Error ? error.message : 'Could not prepare this STL.')
+      // Name the file and say nothing was lost, since the previous model stays loaded.
+      const reason = error instanceof Error ? error.message : 'It could not be prepared.'
+      setImportError(`Couldn't open ${file.name}. ${reason} Your current model is unchanged.`)
     } finally {
       setLoading(false)
     }
@@ -198,6 +202,8 @@ export function App() {
     setInput(null)
     adopt(freshSurface(null, null))
     setImportError('')
+    setProjectError('')
+    setProjectStatus('')
     setSavedPoint({ step: 0, edits })
   }
 
@@ -262,8 +268,8 @@ export function App() {
       setSavedPoint({ step: restored.clock, edits })
       setProjectStatus(`Opened ${file.name}.`)
     } catch (error) {
-      setProjectError(error instanceof SyntaxError ? 'This project file could not be read.'
-        : error instanceof Error ? error.message : 'Could not open this project.')
+      const reason = error instanceof SyntaxError ? 'The file could not be read.' : error instanceof Error ? error.message : 'It could not be opened.'
+      setProjectError(`Couldn't open ${file.name}. ${reason} Your current model is unchanged.`)
     } finally {
       setLoading(false)
     }

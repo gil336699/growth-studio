@@ -1,5 +1,11 @@
 # Growth Studio Changelog
 
+## 0.5.3 2026-11-08
+
+- Layer rows describe what each layer covers, such as "16% wide · 6 lobes", "Radius 20%", "70% to 100% of height", or "Not drawn yet" for a line, instead of repeating the layer's name.
+- On a model without open rims, rim layers are dimmed and say "No open rims on this model".
+- When an STL or project can't be opened, the message names the file and says the current model is unchanged. Old messages clear once another model or project opens.
+
 ## 0.5.2 2026-11-07
 
 - The model no longer flashes black while it grows. Each time growth added triangles, the new mesh could be drawn once before its colors were filled in.

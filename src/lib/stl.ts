@@ -65,7 +65,7 @@ export function parseStl(buffer: ArrayBuffer, fileName: string): HostModel & { s
     return prepareGeometry(new STLLoader().parse(buffer), fileName)
   } catch (error) {
     if (error instanceof StlImportError) throw error
-    throw new StlImportError('The file could not be read as an STL mesh.')
+    throw new StlImportError('It could not be read as an STL mesh.')
   }
 }
 

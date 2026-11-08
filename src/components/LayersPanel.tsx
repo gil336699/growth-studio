@@ -18,6 +18,25 @@ type Props = {
 }
 
 const percent = (value: number) => `${Math.round(value * 100)}%`
+
+// What a layer covers, in a few words for its row, without repeating its name.
+function layerSummary(layer: GrowthLayer, rims: Rim[]) {
+  const parts: string[] = []
+  if (layer.kind === 'rim') {
+    if (!rims.length) return 'No open rims on this model'
+    const where = rimName(rims, layer.rim)
+    if (where !== layer.name) parts.push(where)
+    parts.push(`${percent(layer.width)} wide`)
+    if (layer.lobes) parts.push(`${layer.lobes} lobes`)
+  } else if (layer.kind === 'point') parts.push(`Radius ${percent(layer.radius)}`)
+  else if (layer.kind === 'line') parts.push(layer.points.length ? `${percent(layer.radius)} wide` : 'Not drawn yet')
+  else if (layer.kind === 'height') parts.push(`${percent(layer.low)} to ${percent(layer.high)} of height`)
+  else if (layer.kind === 'noise') parts.push(`Pattern ${layer.scale.toFixed(2)}`)
+  else parts.push('Brush strokes')
+  if (layer.timing.start) parts.push(`from step ${layer.timing.start}`)
+  if (layer.timing.end !== null) parts.push(`until step ${layer.timing.end}`)
+  return parts.join(' · ')
+}
 const ADDABLE: LayerKind[] = ['rim', 'point', 'line', 'height', 'noise']
 // What each kind of layer does, shown on hover.
 const LAYER_TIPS: Record<LayerKind, string> = {
@@ -112,7 +131,7 @@ export function LayersPanel(props: Props) {
   return <section><h2>Growth layers</h2>
     <p className="hint">Each layer adds growth somewhere. Where layers overlap, the strongest wins. Erase and noise apply on top.</p>
     <ul className="layer-list" aria-label="Growth layers">
-      {layers.map(layer => <li key={layer.id} className={layer.id === selected?.id ? 'selected' : undefined}
+      {layers.map(layer => <li key={layer.id} className={[layer.id === selected?.id ? 'selected' : '', layer.kind === 'rim' && !rims.length ? 'inactive' : ''].filter(Boolean).join(' ') || undefined}
         onPointerEnter={() => layer.kind === 'rim' && props.onPreviewRim(layer.rim === 'all' ? -1 : layer.rim)}
         onPointerLeave={() => props.onPreviewRim(null)}>
         <button type="button" className="layer-eye" aria-pressed={layer.visible} aria-label={`${layer.visible ? 'Hide' : 'Show'} ${layer.name}`}
@@ -121,9 +140,7 @@ export function LayersPanel(props: Props) {
         </button>
         <button type="button" className="layer-name" data-tip={`${layer.name}. ${LAYER_TIPS[layer.kind]}`} onClick={() => props.onSelect(layer.id)}>
           <span>{layer.name}</span>
-          <small>{[layer.kind === 'rim' ? rimName(rims, layer.rim) : LAYER_LABELS[layer.kind],
-            layer.kind === 'rim' && layer.lobes ? `${layer.lobes} lobes` : '',
-            layer.timing.start ? `from step ${layer.timing.start}` : ''].filter(Boolean).join(' · ')}</small>
+          <small>{layerSummary(layer, rims)}</small>
         </button>
         <b data-tip={layer.kind === 'noise' ? 'Variation' : 'Strength'}>{percent(layer.strength)}</b>
       </li>)}
