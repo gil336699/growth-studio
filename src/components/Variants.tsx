@@ -3,7 +3,7 @@ import { drawThumbnail } from '../lib/thumbnail'
 import type { VariantMessage, VariantRequest } from '../lib/variants.worker'
 import type { DISK_DEFAULTS, DiskSnapshot } from '../physics/growingDisk'
 import type { GrowthLayer } from '../physics/growthLayers'
-import type { Disk } from './Viewport'
+import type { DiskSession } from '../lib/diskSession'
 
 type Mechanics = typeof DISK_DEFAULTS
 type Parameter = 'width' | 'bending' | 'growthRate' | 'repelDistance'
@@ -16,7 +16,7 @@ const PARAMETERS: Record<Parameter, { label: string; factors: number[]; format: 
 type Result = { value: number; label: string; done: number; snapshot?: DiskSnapshot; strain?: number; error?: string }
 
 export function Variants({ disk, source, mechanics, layers, onUse }: {
-  disk: Disk
+  disk: DiskSession
   source: { positions: Float32Array; indices: Uint32Array } | null
   mechanics: Mechanics
   layers: GrowthLayer[]
@@ -39,9 +39,9 @@ export function Variants({ disk, source, mechanics, layers, onUse }: {
     })
   }, [results])
 
-  const run = () => {
+  const run = async () => {
     workers.current.forEach(worker => worker.terminate())
-    const snapshot = disk.snapshot()
+    const { snapshot } = await disk.requestSnap()
     const variants = PARAMETERS[parameter].factors.map(factor => {
       const value = base * factor
       const nextLayers = parameter === 'width'
@@ -78,7 +78,7 @@ export function Variants({ disk, source, mechanics, layers, onUse }: {
         {[100, 200, 400].map(value => <option key={value} value={value}>{value}</option>)}
       </select>
     </label>
-    <button type="button" className="wide" disabled={running} onClick={run}
+    <button type="button" className="wide" disabled={running} onClick={() => void run()}
       data-tip="Grow four versions from the current shape in the background, each with the chosen setting changed.">{running ? 'Growing variants…' : 'Grow 4 variants'}</button>
     {results.length > 0 && <div className="variant-grid">
       {results.map((result, i) => <figure key={i} className="variant">

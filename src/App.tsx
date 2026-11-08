@@ -3,14 +3,16 @@ import { Vector3 } from 'three'
 import { LayersPanel } from './components/LayersPanel'
 import { Icon } from './components/Icon'
 import { Modal } from './components/Modal'
-import { Timeline, type SnapshotMark } from './components/Timeline'
+import { Timeline } from './components/Timeline'
 import { TooltipLayer } from './components/Tooltip'
 import { TabPanel, Tabs } from './components/Tabs'
 import { Variants } from './components/Variants'
-import { Viewport, type Disk, type StrokePoint } from './components/Viewport'
+import { Viewport } from './components/Viewport'
 import { ViewportBars } from './components/ViewportBars'
 import { BRUSH_TOOLS, rimName, type Tool } from './lib/tools'
 import { useMediaQuery } from './lib/useMediaQuery'
+import { createDiskSession, type DiskSession } from './lib/diskSession'
+import type { PlayConfig, Snap } from './lib/playback'
 import {
   BRUSH_DEFAULTS, deserializeDiskProject, serializeDiskProject, STOP_DEFAULTS,
   type BrushSettings, type DiskView, type Overlay, type Phase, type StopAt,
@@ -20,20 +22,14 @@ import { exportBinaryStl, exportObj } from './lib/meshExport'
 import { PRESETS } from './lib/presets'
 import { rangeFill } from './lib/rangeFill'
 import { saveFile, type SaveResult } from './lib/saveFile'
-import { createGrowingDisk, DISK_DEFAULTS, diskGravityDirection, type BrushMode, type DiskSnapshot } from './physics/growingDisk'
+import { createGrowingDisk, DISK_DEFAULTS, diskGravityDirection, type BrushMode, type DiskSnapshot, type StrokePoint } from './physics/growingDisk'
 import type { GrowthLayer, Vec3 } from './physics/growthLayers'
 import { growthExportPositions, readGrowthStl, type GrowthStlSource } from './physics/growthStl'
 import { MAX_TRIANGLES, SLOW_TRIANGLES, stlTriangleCount } from './lib/stl'
 
 type Mechanics = typeof DISK_DEFAULTS
-type Snap = { mark: SnapshotMark; snapshot: DiskSnapshot }
 const MAX_SNAPSHOTS = 80
 const percent = (value: number, digits = 0) => `${(value * 100).toFixed(digits)}%`
-
-const markOf = (disk: Disk): SnapshotMark => ({
-  step: disk.clock, strain: disk.strain, size: formSize(disk.positions, disk.referencePositions).multiple,
-})
-const snapOf = (disk: Disk): Snap => ({ mark: markOf(disk), snapshot: disk.snapshot() })
 // Keep the newest snapshots; thin out older ones when the list is full.
 const keepSnapshots = (snaps: Snap[]) => snaps.length <= MAX_SNAPSHOTS ? snaps
   : snaps.filter((_, i) => i === 0 || i >= snaps.length / 2 || i % 2 === 0)
@@ -58,7 +54,7 @@ const SHORTCUTS: [string, string][] = [
 ]
 
 export function App() {
-  const [disk, setDisk] = useState<Disk>(() => createGrowingDisk())
+  const [disk, setDisk] = useState<DiskSession>(() => createDiskSession(createGrowingDisk(), { source: null }))
   const [tick, setTick] = useState(0)
   const touchScreen = useMediaQuery('(pointer: coarse)')
   const [running, setRunning] = useState(false)
@@ -88,8 +84,9 @@ export function App() {
   const [stopAt, setStopAt] = useState<StopAt>(STOP_DEFAULTS)
   const [phases, setPhases] = useState<Phase[]>([])
   const [phaseIndex, setPhaseIndex] = useState<number | null>(null)
-  const phaseRun = useRef<{ index: number; remaining: number } | null>(null)
-  const [snapshots, setSnapshots] = useState<Snap[]>(() => [snapOf(disk)])
+  // True while Run phases plays, so playback starts at the first phase.
+  const phaseRun = useRef(false)
+  const [snapshots, setSnapshots] = useState<Snap[]>(() => [disk.snapNow()])
   const [viewing, setViewing] = useState<number | null>(null)
   const [every, setEvery] = useState(50)
   const [edits, setEdits] = useState(0)
@@ -118,7 +115,9 @@ export function App() {
   const touch = () => setEdits(value => value + 1)
   const manualSteps = input ? importBatch : batch
   const stepsPerUpdate = input ? importSpeed : speed
-  const active = running || manualQueue > 0
+  // Stop takes effect after the step the worker is on, so the model counts as active until then.
+  const stopping = disk.busy && !running && !manualQueue
+  const active = running || manualQueue > 0 || disk.busy
   const canSimulate = !loading && !disk.initialOverlap && disk.canGrow
   const selectedLayer = layers.find(layer => layer.id === selectedLayerId) ?? layers[0]
 
@@ -134,29 +133,31 @@ export function App() {
     return settings
   })
   // Swap in a new solver state and the controls that describe it.
-  const adopt = (next: Disk, keepTimeline = false) => {
+  const adopt = (next: DiskSession, keepTimeline = false) => {
     setDisk(next)
     setLayersState(next.layers)
     setSelectedLayerId(current => next.layers.some(layer => layer.id === current) ? current : next.layers[0]?.id ?? null)
     setPreviewRim(null)
-    if (!keepTimeline) { setSnapshots([snapOf(next)]); setViewing(null) }
+    if (!keepTimeline) { setSnapshots([next.snapNow()]); setViewing(null) }
     setTick(value => value + 1)
   }
+  // Redraw when the simulation worker sends a frame, and end the worker when the model is replaced.
+  useEffect(() => disk.subscribe(() => setTick(value => value + 1)), [disk])
+  useEffect(() => () => disk.release(), [disk])
   const stopPlayback = () => {
     setRunning(false)
     setManualQueue(0)
-    phaseRun.current = null
+    phaseRun.current = false
     setPhaseIndex(null)
   }
   const freshSurface = (source: GrowthStlSource | null, keepLayers: GrowthLayer[] | null) => {
     const fresh = createGrowingDisk(source ?? undefined, mechanics.remeshLength)
-    fresh.setMechanics(mechanics)
     if (keepLayers) {
       // Keep layers whose rim still exists on the new surface.
       const count = fresh.openRims.length
       fresh.setLayers(keepLayers.filter(layer => layer.kind !== 'rim' || layer.rim === 'all' || layer.rim < count))
     }
-    return fresh
+    return createDiskSession(fresh, { source, mechanics })
   }
   const reset = () => {
     stopPlayback()
@@ -225,8 +226,9 @@ export function App() {
   // Resolves true once the project is written or handed to the browser as a download.
   const saveProject = async () => {
     const source = input && { ...input, positions: Array.from(input.positions), indices: Array.from(input.indices) }
+    const { snapshot } = await disk.requestSnap()
     const json = serializeDiskProject({
-      source, disk: disk.snapshot(), mechanics, revision: step, centerExport, relaxing, view,
+      source, disk: snapshot, mechanics, revision: step, centerExport, relaxing, view,
       speed, batch, importSpeed, importBatch, brush, overlay, ghost, phases, stopAt,
     })
     const filename = `${snapshotName}.growthstudio.json`
@@ -245,8 +247,8 @@ export function App() {
     setProjectStatus('')
     try {
       const project = deserializeDiskProject(await file.text())
-      const restored = createGrowingDisk(project.source ?? undefined, project.mechanics.remeshLength, project.disk)
-      restored.setMechanics(project.mechanics)
+      const restored = createDiskSession(createGrowingDisk(project.source ?? undefined, project.mechanics.remeshLength, project.disk),
+        { source: project.source, mechanics: project.mechanics })
       stopPlayback()
       setInput(project.source)
       adopt(restored)
@@ -283,25 +285,25 @@ export function App() {
     setSnapshots(current => current.slice(0, viewing + 1))
     setViewing(null)
   }
-  const scrub = (index: number | null) => {
+  const scrub = async (index: number | null) => {
     // Leaving the live shape keeps it as the newest snapshot, so scrubbing back to the end loses nothing.
     let list = snapshots
     if (viewing === null && snapshots.at(-1)?.mark.step !== step) {
-      list = keepSnapshots([...snapshots, snapOf(disk)])
+      list = keepSnapshots([...snapshots, await disk.requestSnap()])
       setSnapshots(list)
     }
     const target = index ?? list.length - 1
     const snap = list[target]
     if (!snap) return
-    const restored = createGrowingDisk(input ?? undefined, mechanics.remeshLength, snap.snapshot)
-    restored.setMechanics(mechanics)
+    const restored = createDiskSession(createGrowingDisk(input ?? undefined, mechanics.remeshLength, snap.snapshot), { source: input, mechanics })
     adopt(restored, true)
     setViewing(index)
     setNotice('')
   }
-  const takeSnapshot = () => {
+  const takeSnapshot = async () => {
     branchIfViewingPast()
-    setSnapshots(current => keepSnapshots([...current.filter(s => s.mark.step !== step), snapOf(disk)]))
+    const snap = await disk.requestSnap()
+    setSnapshots(current => keepSnapshots([...current.filter(s => s.mark.step !== snap.mark.step), snap]))
   }
   const play = () => {
     branchIfViewingPast()
@@ -316,107 +318,42 @@ export function App() {
   const runPhases = () => {
     if (!phases.length) return
     branchIfViewingPast()
-    phaseRun.current = { index: 0, remaining: phases[0].steps }
+    phaseRun.current = true
     setPhaseIndex(0)
     setNotice('')
     setRunning(true)
   }
 
-  const stopReached = (target: Disk): string => {
-    if (stopAt.kind === 'step' && target.clock >= stopAt.value) return `Stopped at step ${target.clock}.`
-    if (stopAt.kind === 'strain' && target.strain >= stopAt.value) return `Stopped at ${percent(target.strain)} target strain.`
-    if (stopAt.kind === 'size') {
-      const size = formSize(target.positions, target.referencePositions).multiple
-      if (size >= stopAt.value) return `Stopped at ${size.toFixed(2)}× the starting size.`
-    }
-    return ''
-  }
-
-  // Runs growth in batches. After each batch it waits for the browser to draw a frame before starting the
-  // next one, so the view and orbiting stay responsive even when a single step takes longer than a frame.
+  // Playback runs in the simulation worker, which steps at this pace and reports snapshots, phases and Stop at.
+  // Changing a setting mid-run updates the worker without restarting playback.
+  const playConfig = useMemo<PlayConfig>(() => ({ stepsPerUpdate, relaxing, every, stopAt, phases }), [stepsPerUpdate, relaxing, every, stopAt, phases])
   useEffect(() => {
     if (!running && !manualQueue) return
-    let remaining = manualQueue
-    const period = running ? 40 : 16
-    let timer = 0, frame = 0, fallback = 0, cancelled = false
-    const runBatch = () => {
-      if (cancelled) return
-      const started = performance.now()
-      const deadline = started + 12
-      let limit = running ? stepsPerUpdate : remaining
-      if (stopAt.kind === 'step') limit = Math.min(limit, Math.max(0, stopAt.value - disk.clock))
-      let attempts = 0
-      let stop = ''
-      while (!stop && attempts < limit && (attempts === 0 || !input || performance.now() < deadline)) {
-        const phase = phaseRun.current
-        const relax = phase ? phases[phase.index]?.mode === 'relax' : relaxing
-        const before = disk.clock
-        disk.step(!relax)
-        attempts++
-        if (disk.clock !== before && disk.clock % every === 0) {
-          const snap = snapOf(disk)
-          setSnapshots(current => keepSnapshots([...current.filter(s => s.mark.step !== snap.mark.step), snap]))
-        }
-        if (phase && --phase.remaining <= 0) {
-          const next = phase.index + 1
-          if (next >= phases.length) stop = 'Phases finished.'
-          else { phase.index = next; phase.remaining = phases[next].steps; setPhaseIndex(next) }
-        }
-      }
-      if (!stop && !(phaseRun.current && phases[phaseRun.current.index]?.mode === 'relax') && !relaxing) stop = stopReached(disk)
-      if (!stop && stopAt.kind === 'step' && disk.clock >= stopAt.value) stop = `Stopped at step ${disk.clock}.`
-      setTick(value => value + 1)
-      if (stop) {
+    disk.play(running ? null : manualQueue, phaseRun.current, playConfig, {
+      onSnapshot: snap => setSnapshots(current => keepSnapshots([...current.filter(s => s.mark.step !== snap.mark.step), snap])),
+      onPhase: setPhaseIndex,
+      onStopped: reason => {
         stopPlayback()
-        setNotice(stop)
-        return
-      }
-      if (!running) {
-        remaining -= Math.max(1, attempts)
-        if (remaining <= 0) {
-          setManualQueue(0)
-          return
-        }
-      }
-      // Keep the usual pace between batches, but never start one before a frame has been drawn. When the
-      // browser draws no frames, as in a covered window, the fallback keeps growth going at a slower pace.
-      const next = () => {
-        cancelAnimationFrame(frame)
-        window.clearTimeout(fallback)
-        timer = window.setTimeout(runBatch, Math.max(0, period - (performance.now() - started)))
-      }
-      frame = requestAnimationFrame(next)
-      fallback = window.setTimeout(next, 100)
-    }
-    timer = window.setTimeout(runBatch, period)
-    return () => {
-      cancelled = true
-      window.clearTimeout(timer)
-      window.clearTimeout(fallback)
-      cancelAnimationFrame(frame)
-    }
-  // stopReached reads stopAt, which is a dependency.
+        if (reason) setNotice(reason)
+      },
+    })
+    return () => disk.stop()
+  // Only Play, Step, Stop or a new model start or end a run; playConfig changes go through configure below.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [running, manualQueue, disk, stepsPerUpdate, relaxing, input, every, phases, stopAt])
+  }, [running, manualQueue, disk])
+  useEffect(() => disk.configure(playConfig), [disk, playConfig])
 
   // Brush strokes: one stroke per drag, merged across symmetric copies.
   const onStroke = (points: StrokePoint[], pressure: number, first: boolean) => {
     if (!BRUSH_TOOLS.includes(tool)) return
     const paintLayer = layers.find(layer => layer.kind === 'paint')
     if (paintLayer && !paintLayer.visible) applyLayers(layers.map(layer => layer.kind === 'paint' ? { ...layer, visible: true } : layer))
-    if (first) disk.beginBrushStroke()
-    const merged = new Map<number, number>()
-    for (const { face, point } of points) {
-      for (const { vertex, amount } of disk.brushFootprint(face, point, brush.radius, brush.hardness)) {
-        merged.set(vertex, Math.max(merged.get(vertex) ?? 0, amount))
-      }
-    }
-    disk.paintStroke([...merged].map(([vertex, amount]) => ({ vertex, amount })), tool as BrushMode, brush.strength * pressure)
+    disk.brush(points, brush.radius, brush.hardness, tool as BrushMode, brush.strength * pressure, first)
     touch()
     setTick(value => value + 1)
   }
   const onPlace = (point: Vec3) => {
-    const rest = disk.restPoint(disk.nearestVertex(point))
+    const rest = disk.restPointNear(point)
     if (tool === 'point' && selectedLayer?.kind === 'point') {
       applyLayers(layers.map(layer => layer.id === selectedLayer.id ? { ...layer, center: rest } as GrowthLayer : layer))
     } else if (tool === 'line' && selectedLayer?.kind === 'line') {
@@ -455,12 +392,13 @@ export function App() {
   const useVariant = (snapshot: DiskSnapshot, variantMechanics: Mechanics, variantLayers: GrowthLayer[]) => {
     stopPlayback()
     branchIfViewingPast()
-    const next = createGrowingDisk(input ?? undefined, variantMechanics.remeshLength, snapshot)
-    next.setMechanics(variantMechanics)
-    next.setLayers(variantLayers)
+    const grown = createGrowingDisk(input ?? undefined, variantMechanics.remeshLength, snapshot)
+    grown.setLayers(variantLayers)
+    const next = createDiskSession(grown, { source: input, mechanics: variantMechanics })
     setMechanics(variantMechanics)
     adopt(next, true)
-    setSnapshots(current => keepSnapshots([...current.filter(s => s.mark.step < next.clock), snapOf(next)]))
+    const snap = next.snapNow()
+    setSnapshots(current => keepSnapshots([...current.filter(s => s.mark.step < snap.mark.step), snap]))
     touch()
     setNotice('Continuing from the chosen variant.')
   }
@@ -508,7 +446,7 @@ export function App() {
   const slowed = !relaxing && disk.growthThrottle < 0.995
   const phaseMode = phaseIndex !== null ? phases[phaseIndex]?.mode : null
   // While paused, a stop message explains why playback ended; contact status shows otherwise.
-  const playbackStatus = loading ? 'Loading…' : !active && notice ? notice : contactStatus || (active
+  const playbackStatus = loading ? 'Loading…' : stopping ? 'Stopping…' : !active && notice ? notice : contactStatus || (active
     ? (phaseMode ? `Phase ${phaseIndex! + 1}: ${phaseMode === 'relax' ? 'relaxing' : 'growing'}`
       : relaxing ? 'Relaxing' : slowed ? `Growing at ${Math.round(disk.growthThrottle * 100)}% (contact)` : 'Growing')
     : notice || (!disk.canGrow ? (rims.length ? 'No growth field. Turn on a layer or paint' : 'No open rims. Paint growth or add a layer') : 'Paused'))
@@ -528,8 +466,8 @@ export function App() {
   const rimEdges = previewRim === null ? undefined : previewRim === -1 ? rims.flatMap(rim => rim.edges) : rims[previewRim]?.edges
 
   const transport = <div className="transport" role="group" aria-label="Playback">
-    <button className="primary" disabled={!active && !canSimulate} data-key="Space"
-      data-tip={active ? 'Stop growing.' : blockedReason || (relaxing ? 'Let the shape settle without adding growth, until you stop it.' : 'Grow continuously until you stop it, or until Stop at is reached.')}
+    <button className="primary" disabled={stopping || (!active && !canSimulate)} data-key="Space"
+      data-tip={stopping ? 'Stopping after the current step.' : active ? 'Stop growing.' : blockedReason || (relaxing ? 'Let the shape settle without adding growth, until you stop it.' : 'Grow continuously until you stop it, or until Stop at is reached.')}
       onClick={() => active ? stopPlayback() : play()}><Icon name={active ? 'stop' : 'play'} />{active ? 'Stop' : relaxing ? 'Play relaxation' : 'Play growth'}</button>
     <button disabled={active || !canSimulate} data-key="."
       data-tip={active ? 'Stop playback first.' : blockedReason || `Run ${manualSteps} steps, then pause. Change the batch size under Simulation › Advanced.`} onClick={stepOnce}><Icon name="step" /><span className="compact-label">Step {manualSteps}</span></button>
@@ -571,7 +509,7 @@ export function App() {
         </div>
         {importError && <p className="hint" role="alert">{importError}</p>}
         {disk.indices.length / 3 > SLOW_TRIANGLES && <div className="overlap-warning" role="status">
-          <p>{(disk.indices.length / 3).toLocaleString()} triangles: each step can take seconds, and the app pauses while it runs. For interactive growth, reduce below {SLOW_TRIANGLES.toLocaleString()} (Fusion: Mesh › Reduce).</p>
+          <p>{(disk.indices.length / 3).toLocaleString()} triangles: each step can take seconds. The view stays responsive, but the shape changes slowly. For interactive growth, reduce below {SLOW_TRIANGLES.toLocaleString()} (Fusion: Mesh › Reduce).</p>
         </div>}
         {disk.initialOverlap && <div className="overlap-warning" role="alert">
           <p>The surface crosses itself in {disk.startingCrossings.toLocaleString()} {disk.startingCrossings === 1 ? 'place' : 'places'}, usually because several bodies were exported together.</p>
@@ -649,7 +587,7 @@ export function App() {
             min={1} max={4} step={0.25} title="How many vertices growth can add. Higher limits keep folds refining but run slower."
             onChange={value => change('detailScale', value)} />
           <Slider label="Playback speed" value={stepsPerUpdate} display={`${stepsPerUpdate} ${stepsPerUpdate === 1 ? 'step' : 'steps'} per update`}
-            min={1} max={input ? 3 : 5} step={1} title="Steps calculated before each redraw. Higher plays faster but less smoothly." disabled={Boolean(manualQueue)}
+            min={1} max={input ? 3 : 5} step={1} title="Steps calculated between shape updates. Higher grows faster, in bigger jumps." disabled={Boolean(manualQueue)}
             onChange={value => (input ? setImportSpeed : setSpeed)(value)} />
           <Slider label="Manual step size" value={manualSteps} display={String(manualSteps)} min={10} max={input ? 30 : 100} step={10}
             title="How many steps the Step button runs." onChange={value => (input ? setImportBatch : setBatch)(value)} />
@@ -680,7 +618,7 @@ export function App() {
           </span>}
         </div>
         <Timeline marks={snapshots.map(s => s.mark)} viewing={viewing} step={step} strain={disk.strain} every={every} active={active}
-          phases={phases} phaseIndex={phaseIndex} onScrub={scrub} onSnapshot={takeSnapshot} onEvery={setEvery}
+          phases={phases} phaseIndex={phaseIndex} onScrub={index => void scrub(index)} onSnapshot={() => void takeSnapshot()} onEvery={setEvery}
           onPhases={next => { setPhases(next); touch() }} onRunPhases={runPhases} transport={transport} status={status} />
       </div>
     </section>

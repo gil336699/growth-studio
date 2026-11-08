@@ -7,13 +7,13 @@ import {
 import type { BrushSettings, DiskView, Overlay } from '../lib/diskProject'
 import { symmetricPoints, verticalAxis } from '../lib/symmetry'
 import type { Tool } from '../lib/tools'
-import type { createGrowingDisk } from '../physics/growingDisk'
+import type { DiskSession } from '../lib/diskSession'
+import type { StrokePoint } from '../physics/growingDisk'
 import type { GrowthLayer, Vec3 } from '../physics/growthLayers'
 import { buildDiskVoronoi, diskVoronoiLines } from '../physics/diskVoronoi'
 import { type buildSurfaceVoronoi, surfaceVoronoiLines } from '../physics/surfaceVoronoi'
 
-export type Disk = ReturnType<typeof createGrowingDisk>
-export type StrokePoint = { face: number; point: Vec3 }
+type Disk = DiskSession
 
 const NEUTRAL = new Color('#dbe3de')
 const OVERLAY_COLORS: Record<Overlay, Color> = {

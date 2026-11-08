@@ -1,8 +1,8 @@
 import { type ReactNode, useState } from 'react'
 import type { Phase } from '../lib/diskProject'
+import type { SnapshotMark } from '../lib/playback'
 import { rangeFill } from '../lib/rangeFill'
 
-export type SnapshotMark = { step: number; strain: number; size: number }
 type Props = {
   marks: SnapshotMark[]
   viewing: number | null

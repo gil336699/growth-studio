@@ -8,6 +8,9 @@ import {
 } from './growthLayers'
 
 export type BrushMode = 'paint' | 'erase' | 'smooth'
+// One brush dab: the face under the pointer (or -1 for a symmetric copy) and the surface point.
+export type StrokePoint = { face: number; point: Vec3 }
+export type StepStatus = 'ready' | 'moving' | 'settled' | 'contact'
 
 export const DISK_DEFAULTS = {
   growthRate: 0.003, bending: 0.065, damping: 0.18, remeshLength: 0.145, gravity: 0, gravityTilt: 0, gravityHeading: 0,
@@ -60,7 +63,23 @@ export type DiskSnapshot = {
   preparationPatches: number
 }
 
-export function createGrowingDisk(input?: { positions: Float32Array; indices: Uint32Array }, startingEdgeLength = DISK_DEFAULTS.remeshLength, snapshot?: DiskSnapshot) {
+// What a snapshot leaves out but a model handed to another thread needs to carry on exactly as it would have:
+// recent contact (it decides where contact is searched), brush undo, the last step's status, and whether the
+// starting surface crossed itself (so it isn't tested again).
+export type DiskLive = {
+  contactHeat: number[]
+  brushHistory: [number, number, number][][]
+  stepStatus: StepStatus
+  lastMotion: number
+  lastContactCorrections: number
+  startOverlap: boolean
+}
+export type DiskLiveState = { snapshot: DiskSnapshot; live: DiskLive }
+
+export type GrowingDisk = ReturnType<typeof createGrowingDisk>
+
+export function createGrowingDisk(input?: { positions: Float32Array; indices: Uint32Array }, startingEdgeLength = DISK_DEFAULTS.remeshLength,
+  snapshot?: DiskSnapshot, live?: DiskLive) {
   const rings = 12
   let rest = snapshot ? [...snapshot.rest] : input ? Array.from(input.positions) : [0, 0, 0]
   const faces: number[] = snapshot?.indices ?? (input ? Array.from(input.indices) : [])
@@ -103,7 +122,7 @@ export function createGrowingDisk(input?: { positions: Float32Array; indices: Ui
     return values
   }
   let paint: PaintMaps = { add: sparse(snapshot?.paintAdd, field.length), erase: sparse(snapshot?.paintErase, field.length) }
-  let contactHeat = new Float32Array(field.length)
+  let contactHeat = live && live.contactHeat.length === field.length ? Float32Array.from(live.contactHeat) : new Float32Array(field.length)
   let ignoredOverlaps: Uint8Array | null = null
   if (snapshot?.ignoredOverlaps) {
     ignoredOverlaps = new Uint8Array(field.length)
@@ -170,10 +189,10 @@ export function createGrowingDisk(input?: { positions: Float32Array; indices: Ui
   let rejectedSteps = snapshot?.rejectedSteps ?? 0
   // Blocked steps halve the growth added per step; accepted steps restore it gradually.
   let growthThrottle = snapshot?.growthThrottle ?? 1
-  let lastMotion = 0
-  let lastContactCorrections = 0
+  let lastMotion = live?.lastMotion ?? 0
+  let lastContactCorrections = live?.lastContactCorrections ?? 0
   let geometryRevision = 0
-  let stepStatus: 'ready' | 'moving' | 'settled' | 'contact' = 'ready'
+  let stepStatus: StepStatus = live?.stepStatus ?? 'ready'
   let splits = 0
   let mechanics = { ...DISK_DEFAULTS }
   let gravityDirection = diskGravityDirection(mechanics)
@@ -184,7 +203,8 @@ export function createGrowingDisk(input?: { positions: Float32Array; indices: Ui
   const preparationBudget = Math.max(900, rest.length / 3 + (input ? 300 : 0))
   let growthBudget = snapshot?.growthBudget ?? preparationBudget
   // Each stroke records the paint and erase values it replaced, so undo still works after the mesh splits.
-  const brushHistory: Map<number, [number, number]>[] = []
+  const brushHistory: Map<number, [number, number]>[] = (live?.brushHistory ?? [])
+    .map(entries => new Map(entries.map(([vertex, add, erase]) => [vertex, [add, erase]])))
   let stroke: Map<number, [number, number]> | null = null
   function subdivide(preparing = false) {
     const vertexBudget = preparing ? preparationBudget : growthBudget
@@ -301,7 +321,7 @@ export function createGrowingDisk(input?: { positions: Float32Array; indices: Ui
   const baseBudget = snapshot?.baseBudget ?? growthBudget
   const preparationSplits = snapshot?.preparationSplits ?? splits
   intersects.setExempt(ignoredOverlaps)
-  const startOverlap = Boolean((input || snapshot) && intersects())
+  const startOverlap = live ? live.startOverlap : Boolean((input || snapshot) && intersects())
   let startingCrossings: number | null = null
   splits = snapshot?.splits ?? 0
   function openRims() {
@@ -433,6 +453,29 @@ export function createGrowingDisk(input?: { positions: Float32Array; indices: Ui
     refreshField()
   }
 
+  function saveSnapshot(): DiskSnapshot {
+    const pairs = (values: Float32Array) => {
+      const out: [number, number][] = []
+      values.forEach((value, vertex) => { if (value > 0) out.push([vertex, value]) })
+      return out
+    }
+    return {
+      rest: [...rest],
+      indices: Array.from(indices),
+      positions: Array.from(positions),
+      previous: Array.from(previous),
+      field: Array.from(field),
+      localGrowth: Array.from(localGrowth),
+      layers: structuredClone(layers),
+      ...(ignoredOverlaps ? { ignoredOverlaps: [...ignoredOverlaps.keys()].filter(v => ignoredOverlaps![v]) } : {}),
+      paintAdd: pairs(paint.add),
+      paintErase: pairs(paint.erase),
+      clock,
+      strain: acceptedGrowth, acceptedSteps, rejectedSteps, splits, growthBudget, baseBudget, growthThrottle,
+      preparationSplits, preparationFlips, preparationPatches,
+    }
+  }
+
   return {
     preparationSplits,
     preparationFlips,
@@ -456,26 +499,15 @@ export function createGrowingDisk(input?: { positions: Float32Array; indices: Ui
       intersects.setExempt(ignoredOverlaps)
       return ignoredOverlaps.reduce((total, flag) => total + flag, 0)
     },
-    snapshot(): DiskSnapshot {
-      const pairs = (values: Float32Array) => {
-        const out: [number, number][] = []
-        values.forEach((value, vertex) => { if (value > 0) out.push([vertex, value]) })
-        return out
-      }
+    snapshot: saveSnapshot,
+    liveState(): DiskLiveState {
       return {
-        rest: [...rest],
-        indices: Array.from(indices),
-        positions: Array.from(positions),
-        previous: Array.from(previous),
-        field: Array.from(field),
-        localGrowth: Array.from(localGrowth),
-        layers: structuredClone(layers),
-        ...(ignoredOverlaps ? { ignoredOverlaps: [...ignoredOverlaps.keys()].filter(v => ignoredOverlaps![v]) } : {}),
-        paintAdd: pairs(paint.add),
-        paintErase: pairs(paint.erase),
-        clock,
-        strain: acceptedGrowth, acceptedSteps, rejectedSteps, splits, growthBudget, baseBudget, growthThrottle,
-        preparationSplits, preparationFlips, preparationPatches,
+        snapshot: saveSnapshot(),
+        live: {
+          contactHeat: Array.from(contactHeat),
+          brushHistory: brushHistory.map(entries => [...entries].map(([vertex, [add, erase]]) => [vertex, add, erase])),
+          stepStatus, lastMotion, lastContactCorrections, startOverlap,
+        },
       }
     },
     get positions() { return positions },
@@ -512,6 +544,15 @@ export function createGrowingDisk(input?: { positions: Float32Array; indices: Ui
     brushFootprint,
     beginBrushStroke() { stroke = null },
     paintStroke,
+    // One drag event of a brush stroke: dabs at each point, merged across symmetric copies.
+    brush(points: StrokePoint[], radius: number, hardness: number, mode: BrushMode, strength: number, first: boolean) {
+      if (first) stroke = null
+      const merged = new Map<number, number>()
+      for (const { face, point } of points) {
+        for (const { vertex, amount } of brushFootprint(face, point, radius, hardness)) merged.set(vertex, Math.max(merged.get(vertex) ?? 0, amount))
+      }
+      paintStroke([...merged].map(([vertex, amount]) => ({ vertex, amount })), mode, strength)
+    },
     get canUndoBrush() { return brushHistory.length > 0 },
     undoBrush() {
       const last = brushHistory.pop()
@@ -532,6 +573,8 @@ export function createGrowingDisk(input?: { positions: Float32Array; indices: Ui
       refreshField()
     },
     restPoint(vertex: number): Vec3 { return [rest[vertex * 3], rest[vertex * 3 + 1], rest[vertex * 3 + 2]] },
+    // Starting-shape coordinates in full precision; layer centers placed on the model come from here.
+    get rest(): readonly number[] { return rest },
     nearestVertex,
     get geometryRevision() { return geometryRevision },
     get rejectedSteps() { return rejectedSteps },

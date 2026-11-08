@@ -1,5 +1,17 @@
 # Growth Studio Changelog
 
+## 0.6.0 2026-11-08
+
+- Growth runs in a background worker, so the view, orbiting, and the controls stay smooth however long a step takes. Before, the page could only redraw between steps. In Chrome:
+  - The closed SpringPot with a painted band draws 54 frames per second while it grows, instead of 8.
+  - The weave vase at 4× mesh detail draws 50 to 60 frames per second up to 3,800 vertices, instead of 16.
+  - The page keeps drawing at 59 frames per second during Step 10 on a 181,000-triangle STL, which used to freeze it for about 6 seconds.
+- Light models play closer to the set Playback speed, because playback no longer waits for each redraw. The default disk grows about 70 steps a second instead of 40.
+- Stop takes effect after the step in progress. On a dense mesh that can take a few hundred milliseconds, and the status reads Stopping… until then.
+- Results are unchanged. A model handed to the worker in the middle of contact continues exactly as it would have on the page, which a new test checks.
+- Painting, layer and setting changes, undo, Snapshot, scrubbing, variants, Save, and Export all work during or after playback as before.
+- On very large meshes, the warning no longer says the app pauses while each step runs.
+
 ## 0.5.4 2026-11-08
 
 - On touch screens the controls are at least 44 px tall, as in Apple's guidelines. Before, Play, Step, Reset, Phases, and Snapshot in the timeline dock were 28 to 34 px.

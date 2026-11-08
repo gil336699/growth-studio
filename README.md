@@ -114,10 +114,12 @@ This is a position-based design model. It is not a validated thin-shell or biolo
 
 ## Known limits
 
-- Each step takes longer as the vertex count rises. On the weave vase the physics takes about 12 ms a step at 1,200 vertices and about 39 ms at 3,500. The view keeps drawing between steps, so it stays smooth while steps slow down.
+- Each step takes longer as the vertex count rises. On the weave vase the physics takes about 12 ms a step at 1,200 vertices and about 39 ms at 3,500. Growth runs in a background worker, so the view, orbiting, and the controls stay smooth while steps slow down: Chrome draws about 54 frames per second on a closed pot whose steps take about 100 ms. The shape itself updates only as fast as the steps finish.
+- Stop takes effect after the step in progress, which on a dense mesh can take a few hundred milliseconds. The status reads Stopping… until then.
+- Opening a very large STL still pauses the page while the surface is prepared, about 6 seconds for 181,000 triangles.
 - Very dense growth, such as compounding beyond about 15 times the original size, blocks more steps and slows to a few steps per second.
 - STL files carry no units. Dimensions are reported as millimeters.
-- Browsers slow timers in hidden tabs, so growth slows to about one batch a second while the tab is hidden.
+- Browsers may slow work in hidden tabs, so growth can slow down while the tab is hidden. The view catches up when you return.
 
 ## Development
 
@@ -127,7 +129,8 @@ npm test
 npm run build
 ```
 
-- `src/App.tsx`: the workspace, playback, timeline, and project files
+- `src/App.tsx`: the workspace, timeline, and project files
+- `src/lib/diskSession.ts`: the page's handle on the model. The model moves into `src/physics/simulation.worker.ts` on the first Play, and the page keeps a mirror for the view
 - `src/components/`: the viewport, layers, timeline, and variant panels
 - `src/physics/`: the growing surface, growth layers, contact, bending, remeshing, and Voronoi views
 - `src/lib/`: STL import, project files, export, presets, readouts, and symmetry
