@@ -121,3 +121,59 @@ it('grows a surface that starts crossed once its existing crossings are ignored'
   expect(reopened.initialOverlap).toBe(false)
   expect(reopened.ignoringOverlaps).toBe(true)
 })
+
+it('finds crossing faces but not separated or neighboring ones', () => {
+  const crossed = crossing(0)
+  crossed[11] = -0.5
+  expect(createDiskSelfContact(crossed, crossingFaces)()).toBe(true)
+  expect(createDiskSelfContact(crossing(0.5), crossingFaces)()).toBe(false)
+  // Two faces sharing an edge always touch, and never count as crossing.
+  expect(createDiskSelfContact(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0.2]), new Uint32Array([0, 1, 2, 1, 3, 2]))()).toBe(false)
+})
+
+it('agrees with a check of every face pair on crumpled sheets', async () => {
+  const { ExtendedTriangle } = await import('three-mesh-bvh')
+  // A 9 by 9 grid wrapped around an axis by a seeded random amount. Past one full turn the second wrap's
+  // tilted radius passes through the first, so some seeds cross and some do not.
+  const size = 9
+  const indices: number[] = []
+  for (let y = 0; y < size - 1; y++) for (let x = 0; x < size - 1; x++) {
+    const v = y * size + x
+    indices.push(v, v + 1, v + size, v + 1, v + size + 1, v + size)
+  }
+  const faces = Uint32Array.from(indices)
+  let crossedSeeds = 0
+  for (let seed = 1; seed <= 40; seed++) {
+    let state = seed
+    const random = () => (state = (state * 16807) % 2147483647) / 2147483647
+    // The first values from a small seed are near zero, so skip a few.
+    for (let k = 0; k < 4; k++) random()
+    const turn = 4.5 + random() * 4
+    const positions = new Float32Array(size * size * 3)
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+      const u = x / (size - 1), h = y / (size - 1), angle = u * turn
+      const radius = 0.6 + 0.25 * (h - 0.5) * Math.cos(u * Math.PI) + (random() - 0.5) * 0.02
+      const v = (y * size + x) * 3
+      positions[v] = Math.cos(angle) * radius
+      positions[v + 1] = h
+      positions[v + 2] = Math.sin(angle) * radius
+    }
+    const a = new ExtendedTriangle(), b = new ExtendedTriangle()
+    let expected = false
+    for (let i = 0; i < faces.length && !expected; i += 3) {
+      for (let j = i + 3; j < faces.length && !expected; j += 3) {
+        const shared = [0, 1, 2].some(m => [0, 1, 2].some(n => faces[i + m] === faces[j + n]))
+        if (shared) continue
+        a.a.fromArray(positions, faces[i] * 3); a.b.fromArray(positions, faces[i + 1] * 3); a.c.fromArray(positions, faces[i + 2] * 3)
+        b.a.fromArray(positions, faces[j] * 3); b.b.fromArray(positions, faces[j + 1] * 3); b.c.fromArray(positions, faces[j + 2] * 3)
+        a.needsUpdate = b.needsUpdate = true
+        expected = a.intersectsTriangle(b)
+      }
+    }
+    if (expected) crossedSeeds++
+    expect(createDiskSelfContact(positions.slice(), faces)()).toBe(expected)
+  }
+  // The sample must include both outcomes for the comparison to mean anything.
+  expect(crossedSeeds).toBeGreaterThan(0)
+  expect(crossedSeeds).toBeLessThan(40)
+})

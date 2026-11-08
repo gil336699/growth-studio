@@ -1,6 +1,6 @@
 import { OrbitControls } from '@react-three/drei'
 import { Canvas, type ThreeEvent } from '@react-three/fiber'
-import { type ComponentRef, useEffect, useMemo, useRef, useState } from 'react'
+import { type ComponentRef, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   BufferAttribute, BufferGeometry, Color, DoubleSide, Line, LineBasicMaterial, MOUSE, Quaternion, TOUCH, Vector3,
 } from 'three'
@@ -51,7 +51,9 @@ function Sheet(props: SheetProps) {
     if (!imported) mesh.computeVertexNormals()
     return mesh
   }, [positions, indices, uv, imported])
-  useEffect(() => {
+  // Layout effects run before the next frame is drawn. A new mesh starts with black vertex colors, so
+  // filling them in a later effect let a frame show the model black each time growth added triangles.
+  useLayoutEffect(() => {
     const position = geometry.getAttribute('position') as BufferAttribute
     position.array.set(positions)
     position.needsUpdate = true
@@ -59,7 +61,7 @@ function Sheet(props: SheetProps) {
     geometry.computeBoundingSphere()
   }, [positions, geometry, geometryRevision, imported])
   // Vertex colors show the chosen overlay: growth field, growth so far, or recent contact.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const color = geometry.getAttribute('color') as BufferAttribute
     const rgb = color.array as Float32Array
     const values = overlay === 'growth' ? disk.localGrowth : overlay === 'contact' ? disk.contactHeat : disk.field

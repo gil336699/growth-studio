@@ -110,10 +110,10 @@ This is a position-based design model. It is not a validated thin-shell or biolo
 
 ## Known limits
 
-- Speed drops as the vertex count rises. On a 90 mm vase, about 40 steps per second at 1,100 vertices falls to about 13 at 3,400.
+- Each step takes longer as the vertex count rises. On the weave vase the physics takes about 12 ms a step at 1,200 vertices and about 39 ms at 3,500. The view keeps drawing between steps, so it stays smooth while steps slow down.
 - Very dense growth, such as compounding beyond about 15 times the original size, blocks more steps and slows to a few steps per second.
 - STL files carry no units. Dimensions are reported as millimeters.
-- Browsers slow timers in background tabs, so playback pauses when the tab is hidden.
+- Browsers slow timers in hidden tabs, so growth slows to about one batch a second while the tab is hidden.
 
 ## Development
 

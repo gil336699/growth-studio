@@ -1,5 +1,11 @@
 # Growth Studio Changelog
 
+## 0.5.2 2026-11-07
+
+- The model no longer flashes black while it grows. Each time growth added triangles, the new mesh could be drawn once before its colors were filled in.
+- The view stays smooth while growing. Playback now waits for the browser to draw a frame between batches of steps. On the weave vase at the detail limit, Chrome drew 54 frames per second instead of 14, and orbiting stays responsive.
+- Growth steps are about 2.6 times faster, with identical results. The contact search reads triangles straight from the mesh, measures each nearby edge once, and skips edges that are clearly too far away. The crossing check builds triangles only for pairs that are close.
+
 ## 0.5.1 2026-11-07
 
 - Growth Studio is online at https://gil336699.github.io/growth-studio/. Each push to `main` publishes the latest version to GitHub Pages.

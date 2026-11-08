@@ -324,11 +324,17 @@ export function App() {
     return ''
   }
 
+  // Runs growth in batches. After each batch it waits for the browser to draw a frame before starting the
+  // next one, so the view and orbiting stay responsive even when a single step takes longer than a frame.
   useEffect(() => {
     if (!running && !manualQueue) return
     let remaining = manualQueue
-    const id = window.setInterval(() => {
-      const deadline = performance.now() + 12
+    const period = running ? 40 : 16
+    let timer = 0, frame = 0, fallback = 0, cancelled = false
+    const runBatch = () => {
+      if (cancelled) return
+      const started = performance.now()
+      const deadline = started + 12
       let limit = running ? stepsPerUpdate : remaining
       if (stopAt.kind === 'step') limit = Math.min(limit, Math.max(0, stopAt.value - disk.clock))
       let attempts = 0
@@ -353,7 +359,6 @@ export function App() {
       if (!stop && stopAt.kind === 'step' && disk.clock >= stopAt.value) stop = `Stopped at step ${disk.clock}.`
       setTick(value => value + 1)
       if (stop) {
-        window.clearInterval(id)
         stopPlayback()
         setNotice(stop)
         return
@@ -361,12 +366,27 @@ export function App() {
       if (!running) {
         remaining -= Math.max(1, attempts)
         if (remaining <= 0) {
-          window.clearInterval(id)
           setManualQueue(0)
+          return
         }
       }
-    }, running ? 40 : 16)
-    return () => window.clearInterval(id)
+      // Keep the usual pace between batches, but never start one before a frame has been drawn. When the
+      // browser draws no frames, as in a covered window, the fallback keeps growth going at a slower pace.
+      const next = () => {
+        cancelAnimationFrame(frame)
+        window.clearTimeout(fallback)
+        timer = window.setTimeout(runBatch, Math.max(0, period - (performance.now() - started)))
+      }
+      frame = requestAnimationFrame(next)
+      fallback = window.setTimeout(next, 100)
+    }
+    timer = window.setTimeout(runBatch, period)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+      window.clearTimeout(fallback)
+      cancelAnimationFrame(frame)
+    }
   // stopReached reads stopAt, which is a dependency.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running, manualQueue, disk, stepsPerUpdate, relaxing, input, every, phases, stopAt])
