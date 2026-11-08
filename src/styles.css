@@ -385,7 +385,9 @@ kbd { display: inline-block; padding: 1px 7px; border-radius: 6px; background: v
 
 /* Tablets: the 3D view on top with its bars and dock inside it, panels side by side below. */
 @media (max-width: 899px) {
-  .studio { overflow: auto; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto auto auto; grid-template-areas: "brand brand" "center center" "sidebar inspector"; }
+  /* The 3D view's row is max-content: the page scrolls inside .studio, whose fixed height would otherwise
+     hold an auto row at its minimum and let the dock spill over the panels below. */
+  .studio { overflow: auto; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto max-content auto; grid-template-areas: "brand brand" "center center" "sidebar inspector"; }
   .stage { position: relative; inset: auto; grid-area: center; overflow: hidden; border-radius: var(--r-panel); background: rgba(0, 0, 0, .04); }
   .center { min-height: max(440px, 62dvh); padding: 10px; }
   /* Panels take their full height and the page scrolls. */
@@ -396,10 +398,15 @@ kbd { display: inline-block; padding: 1px 7px; border-radius: 6px; background: v
 
 /* Phones: one column, with a taller 3D view and display options hidden while brushing. */
 @media (max-width: 599px) {
-  .studio { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto auto; grid-template-areas: "brand" "center" "sidebar" "inspector"; }
+  .studio { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto max-content auto auto; grid-template-areas: "brand" "center" "sidebar" "inspector"; }
   .center { min-height: 76dvh; }
   .viewport-bars:has(.brush-bar) .view-bar { display: none; }
   .bar-slider { width: 96px; }
+  /* Each bar keeps to one line and scrolls sideways if it must, instead of wrapping over the model. */
+  .viewport-bar-row { flex-direction: column; flex-wrap: nowrap; }
+  .floating-bar { flex-wrap: nowrap; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .floating-bar::-webkit-scrollbar { display: none; }
+  .floating-bar > * { flex: none; }
   /* The status and the scrubber each get a full line. */
   .timeline-head, .timeline-controls { flex-wrap: wrap; }
   .timeline-status { order: 5; flex-basis: 100%; padding: 4px 4px 0; }
@@ -407,11 +414,18 @@ kbd { display: inline-block; padding: 1px 7px; border-radius: 6px; background: v
   .timeline-readout { flex: 1; text-align: left; }
 }
 
-/* Larger targets for touch. */
+/* Larger targets for touch, at least 44 px for the main controls as in Apple's guidelines. The selectors match
+   the specific desktop rules so they win over them. */
 @media (pointer: coarse) {
-  button { min-height: 40px; }
-  .floating-bar button, .tab-list [role='tab'] { min-height: 36px; }
-  select, .number-input { min-height: 36px; }
+  button, .transport button, .phases-toggle, .timeline-controls button { min-height: 44px; }
+  .icon-button, .transport button:has(.compact-label) { width: 44px; min-width: 44px; }
+  .floating-bar button, .tab-list [role='tab'] { min-height: 40px; }
+  select, .number-input { min-height: 40px; }
+}
+
+/* On the narrowest phones the gesture hint would take two lines over the model; the field key stays. */
+@media (max-width: 380px) {
+  .view-caption > span:first-child { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

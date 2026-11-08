@@ -10,6 +10,7 @@ import { Variants } from './components/Variants'
 import { Viewport, type Disk, type StrokePoint } from './components/Viewport'
 import { ViewportBars } from './components/ViewportBars'
 import { BRUSH_TOOLS, rimName, type Tool } from './lib/tools'
+import { useMediaQuery } from './lib/useMediaQuery'
 import {
   BRUSH_DEFAULTS, deserializeDiskProject, serializeDiskProject, STOP_DEFAULTS,
   type BrushSettings, type DiskView, type Overlay, type Phase, type StopAt,
@@ -59,6 +60,7 @@ const SHORTCUTS: [string, string][] = [
 export function App() {
   const [disk, setDisk] = useState<Disk>(() => createGrowingDisk())
   const [tick, setTick] = useState(0)
+  const touchScreen = useMediaQuery('(pointer: coarse)')
   const [running, setRunning] = useState(false)
   const [manualQueue, setManualQueue] = useState(0)
   const [relaxing, setRelaxing] = useState(false)
@@ -510,10 +512,14 @@ export function App() {
     ? (phaseMode ? `Phase ${phaseIndex! + 1}: ${phaseMode === 'relax' ? 'relaxing' : 'growing'}`
       : relaxing ? 'Relaxing' : slowed ? `Growing at ${Math.round(disk.growthThrottle * 100)}% (contact)` : 'Growing')
     : notice || (!disk.canGrow ? (rims.length ? 'No growth field. Turn on a layer or paint' : 'No open rims. Paint growth or add a layer') : 'Paused'))
-  const caption = tool === 'point' ? 'Click the model to place the point · Esc to finish'
-    : tool === 'line' ? 'Click to add line points · Esc to finish'
-      : BRUSH_TOOLS.includes(tool) ? 'Left drag to brush · Right drag to orbit · [ ] size'
-        : 'Drag to orbit · Right drag to pan · Scroll to zoom'
+  // Touch screens get gesture wording; mice get button and wheel wording.
+  const caption = touchScreen
+    ? (tool === 'point' ? 'Tap the model to place the point' : tool === 'line' ? 'Tap to add line points'
+      : BRUSH_TOOLS.includes(tool) ? 'One finger brushes · Two fingers turn and zoom' : 'Drag to turn · Pinch to zoom · Two fingers to pan')
+    : tool === 'point' ? 'Click the model to place the point · Esc to finish'
+      : tool === 'line' ? 'Click to add line points · Esc to finish'
+        : BRUSH_TOOLS.includes(tool) ? 'Left drag to brush · Right drag to orbit · [ ] size'
+          : 'Drag to orbit · Right drag to pan · Scroll to zoom'
   const blockedReason = loading ? 'Preparing the surface…'
     : disk.initialOverlap ? 'The starting surface crosses itself. Choose Grow anyway in the Starting surface card first.'
       : !disk.canGrow ? (rims.length ? 'Nothing grows yet. Turn on a layer, or paint growth onto the model.'

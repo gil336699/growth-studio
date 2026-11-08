@@ -1,5 +1,12 @@
 # Growth Studio Changelog
 
+## 0.5.4 2026-11-08
+
+- On touch screens the controls are at least 44 px tall, as in Apple's guidelines. Before, Play, Step, Reset, Phases, and Snapshot in the timeline dock were 28 to 34 px.
+- On touch screens the hint under the 3D view describes gestures, such as "Drag to turn · Pinch to zoom · Two fingers to pan", instead of mouse buttons and the scroll wheel.
+- On phones each bar above the 3D view stays on one line and scrolls sideways if needed, instead of wrapping over the model. On the narrowest phones the gesture hint is hidden.
+- On tablets and phones the 3D view grows to fit its bars and timeline dock, which before could spill over the panels below it on a small screen.
+
 ## 0.5.3 2026-11-08
 
 - Layer rows describe what each layer covers, such as "16% wide · 6 lobes", "Radius 20%", "70% to 100% of height", or "Not drawn yet" for a line, instead of repeating the layer's name.
