@@ -1,8 +1,8 @@
 import { OrbitControls } from '@react-three/drei'
-import { Canvas, type ThreeEvent } from '@react-three/fiber'
+import { Canvas, useFrame, type ThreeEvent } from '@react-three/fiber'
 import { type ComponentRef, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
-  BufferAttribute, BufferGeometry, Color, DoubleSide, Line, LineBasicMaterial, MOUSE, NeutralToneMapping, Quaternion, TOUCH, Vector3,
+  BufferAttribute, BufferGeometry, Color, DirectionalLight, DoubleSide, Line, LineBasicMaterial, MOUSE, NeutralToneMapping, Quaternion, TOUCH, Vector3,
 } from 'three'
 import type { BrushSettings, DiskView, Overlay } from '../lib/diskProject'
 import { symmetricPoints, verticalAxis } from '../lib/symmetry'
@@ -24,6 +24,20 @@ const OVERLAY_COLORS: Record<Overlay, Color> = {
 }
 // Where a thickened wall crosses itself.
 const CROSSING = new Color('#ff2d95')
+
+// The lamp keeps its place beside the camera, a little right of and above it, as it is at the start. A lamp fixed in
+// the scene left whichever side faced away from it lit only by the ambient light, in flat grey, after orbiting there.
+const LAMP = new Vector3(1, 0.707, 0.141), START_DISTANCE = Math.hypot(0, 3.4, 3.4)
+function CameraLamp() {
+  const lamp = useRef<DirectionalLight>(null)
+  const offset = useMemo(() => new Vector3(), [])
+  useFrame(({ camera }) => {
+    if (!lamp.current) return
+    offset.copy(LAMP).multiplyScalar(camera.position.length() / START_DISTANCE).applyQuaternion(camera.quaternion)
+    lamp.current.position.copy(camera.position).add(offset)
+  })
+  return <directionalLight ref={lamp} position={[1, 4, 3]} intensity={2.4} />
+}
 
 // Nearest vertex of the starting shape, so markers placed in rest space follow the grown surface.
 function nearestRest(rest: ArrayLike<number>, point: Vec3) {
@@ -262,7 +276,7 @@ export function Viewport(props: SheetProps & {
   return <div className="stage-canvas" style={{ cursor: editing ? 'crosshair' : 'grab' }}>
     <Canvas camera={{ position: [0, 3.4, 3.4], fov: 48 }} gl={RENDERER} role="img"
       aria-label="3D view of the growing surface. Drag to orbit, scroll to zoom. Use the controls to step, play, and inspect growth.">
-      <ambientLight intensity={1} /><directionalLight position={[1, 4, 3]} intensity={2.4} />
+      <ambientLight intensity={1} /><CameraLamp />
       <Sheet {...props} />
       {props.gravityArrow && <arrowHelper args={props.gravityArrow} />}
       {/* While editing, one finger paints and two fingers zoom and turn. */}

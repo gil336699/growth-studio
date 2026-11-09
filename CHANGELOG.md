@@ -1,5 +1,9 @@
 # Growth Studio Changelog
 
+## 0.8.4 2026-11-09
+
+- The lamp moves with the camera, so the model stays white and shaded from every side. Before, the lamp was fixed in the scene, and after orbiting halfway around, the side in view was lit only by ambient light and looked flat grey: 152 of 255 instead of 241. The view you start with looks the same as before.
+
 ## 0.8.3 2026-11-09
 
 - The wall check no longer reports overlaps at points where a grown sheet crumples. There its faces turn more than 90° apart, so no wall direction suits them all, and the wall overlaps within its own thickness of the point, whatever the wall. Slicers merge this, but it showed as pink spots that a thinner wall couldn't remove: 114 of them on a painted vase at 0.2 mm. Folds that meet, and bends tighter than the wall, are still reported.
