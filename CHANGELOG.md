@@ -1,5 +1,9 @@
 # Growth Studio Changelog
 
+## 0.6.1 2026-11-09
+
+- The model is white instead of pale grey-green, in the 3D view and in the variant thumbnails. The view now uses neutral tone mapping, which keeps white white; the default made it light grey. The growth field, growth so far, and contact colors also show slightly closer to their true color.
+
 ## 0.6.0 2026-11-08
 
 - Growth runs in a background worker, so the view, orbiting, and the controls stay smooth however long a step takes. Before, the page could only redraw between steps. In Chrome:

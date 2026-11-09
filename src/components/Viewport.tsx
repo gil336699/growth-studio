@@ -2,7 +2,7 @@ import { OrbitControls } from '@react-three/drei'
 import { Canvas, type ThreeEvent } from '@react-three/fiber'
 import { type ComponentRef, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
-  BufferAttribute, BufferGeometry, Color, DoubleSide, Line, LineBasicMaterial, MOUSE, Quaternion, TOUCH, Vector3,
+  BufferAttribute, BufferGeometry, Color, DoubleSide, Line, LineBasicMaterial, MOUSE, NeutralToneMapping, Quaternion, TOUCH, Vector3,
 } from 'three'
 import type { BrushSettings, DiskView, Overlay } from '../lib/diskProject'
 import { symmetricPoints, verticalAxis } from '../lib/symmetry'
@@ -15,7 +15,9 @@ import { type buildSurfaceVoronoi, surfaceVoronoiLines } from '../physics/surfac
 
 type Disk = DiskSession
 
-const NEUTRAL = new Color('#dbe3de')
+const NEUTRAL = new Color('#ffffff')
+// Neutral tone mapping keeps the white surface white. The default, ACES, turns it light grey.
+const RENDERER = { toneMapping: NeutralToneMapping }
 const OVERLAY_COLORS: Record<Overlay, Color> = {
   field: new Color('#e63c37'), growth: new Color('#5b4bd6'), contact: new Color('#e0a100'), none: NEUTRAL,
 }
@@ -227,7 +229,7 @@ export function Viewport(props: SheetProps & {
   useEffect(() => { controls.current?.reset() }, [props.cameraKey])
   const editing = props.canEdit && props.tool !== 'orbit'
   return <div className="stage-canvas" style={{ cursor: editing ? 'crosshair' : 'grab' }}>
-    <Canvas camera={{ position: [0, 3.4, 3.4], fov: 48 }} role="img"
+    <Canvas camera={{ position: [0, 3.4, 3.4], fov: 48 }} gl={RENDERER} role="img"
       aria-label="3D view of the growing surface. Drag to orbit, scroll to zoom. Use the controls to step, play, and inspect growth.">
       <ambientLight intensity={1} /><directionalLight position={[1, 4, 3]} intensity={2.4} />
       <Sheet {...props} />

@@ -37,7 +37,7 @@ export function drawThumbnail(canvas: HTMLCanvasElement, positions: ArrayLike<nu
     const length = Math.hypot(...n) || 1
     const shade = 0.35 + 0.65 * Math.abs((n[0] * light[0] + n[1] * light[1] + n[2] * light[2]) / length)
     const heat = field ? (field[a] + field[b] + field[c]) / 3 : 0
-    const r = Math.round((219 + (230 - 219) * heat) * shade), g = Math.round((227 + (60 - 227) * heat) * shade), bl = Math.round((222 + (55 - 222) * heat) * shade)
+    const r = Math.round((255 + (230 - 255) * heat) * shade), g = Math.round((255 + (60 - 255) * heat) * shade), bl = Math.round((255 + (55 - 255) * heat) * shade)
     context.fillStyle = `rgb(${r},${g},${bl})`
     context.beginPath()
     context.moveTo(width / 2 + pa[0] * scale, height / 2 - pa[1] * scale)
