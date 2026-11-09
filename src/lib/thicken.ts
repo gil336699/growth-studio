@@ -221,7 +221,11 @@ export function solidLeaks(indices: ArrayLike<number>) {
 // Places where the solid's wall passes through itself, as the solid vertices involved. Faces that share a
 // vertex touch by construction and are not counted. Counting stops once there are more than limit, since a surface
 // that already crosses itself can cross in millions of places; capped then says there are more than limit.
-export function solidCrossings(positions: Float32Array, indices: Uint32Array, limit = Infinity) {
+// Given origin, faces that came from sheet faces sharing a corner aren't counted either. Where a grown sheet crumples
+// at a point, its faces there turn more than 90° apart and no single offset suits them all, so the wall overlaps
+// within its own thickness of that point, whatever the wall. Slicers merge that; folds meeting and bends tighter
+// than the wall, which a thinner wall does fix, are still counted.
+export function solidCrossings(positions: Float32Array, indices: Uint32Array, limit = Infinity, origin?: ArrayLike<number>) {
   const geometry = new BufferGeometry()
   geometry.setAttribute('position', new BufferAttribute(positions, 3))
   // The tree reorders the index it is given, so give it a copy.
@@ -233,7 +237,10 @@ export function solidCrossings(positions: Float32Array, indices: Uint32Array, li
   tree.bvhcast(tree, new Matrix4(), {
     intersectsTriangles(first, second, i, j) {
       if (i >= j) return false
-      for (let u = 0; u < 3; u++) for (let w = 0; w < 3; w++) if (order[i * 3 + u] === order[j * 3 + w]) return false
+      for (let u = 0; u < 3; u++) for (let w = 0; w < 3; w++) {
+        if (order[i * 3 + u] === order[j * 3 + w]) return false
+        if (origin && origin[order[i * 3 + u]] === origin[order[j * 3 + w]]) return false
+      }
       // A face with no area, such as a sliver in an STL, can't pass through anything, though the test says it touches.
       if (first.getArea() < 1e-14 || second.getArea() < 1e-14 || !first.intersectsTriangle(second)) return false
       pairs++

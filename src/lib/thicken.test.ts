@@ -219,3 +219,16 @@ it('says more than the limit only when there are more', () => {
   expect(solidCrossings(solid.positions, solid.indices, all.pairs)).toMatchObject({ pairs: all.pairs, capped: false })
   expect(solidCrossings(solid.positions, solid.indices, all.pairs - 1)).toMatchObject({ pairs: all.pairs - 1, capped: true })
 }, 60000)
+
+it('does not count the overlap at a crumpled point, but still finds walls too thick for the folds', () => {
+  // Two rings of faces around a point where a grown vase crumpled: its faces turn up to 148° apart.
+  const positions = [0.1214, 0.0803, 0.0992, 0.0629, 0.0366, 0.0592, 0.1093, 0.0311, -0.013, 0, 0, 0, 0.1913, 0.0843, -0.0178, 0.0131, 0.0712, 0.1255, 0.0061, 0.0363, 0.0623, 0.013, 0.1137, -0.0827, 0.0241, 0.0449, -0.0565, 0.0853, 0.0579, -0.0285, 0.1515, 0.1442, -0.0553, 0.0958, 0.0634, -0.1641, 0.0526, 0.0106, -0.0905, -0.0365, 0.1451, 0.0845, -0.0286, 0.1122, 0.0188, -0.0399, 0.2352, 0.0328, 0.1059, 0.0327, -0.0898, 0.1512, 0.0577, -0.0861, 0.0786, 0.1283, 0.0671, 0.0341, 0.0732, 0.016, 0.0235, 0.1822, 0.0388, 0.1358, 0.115, 0.0127]
+  const indices = [0, 1, 2, 1, 3, 2, 2, 4, 0, 5, 6, 1, 6, 3, 1, 1, 0, 5, 7, 8, 9, 8, 3, 9, 9, 10, 7, 11, 12, 7, 3, 8, 12, 8, 7, 12, 5, 13, 14, 13, 15, 14, 3, 6, 14, 6, 5, 14, 2, 16, 17, 16, 11, 17, 17, 4, 2, 3, 12, 2, 11, 16, 12, 16, 2, 12, 18, 19, 14, 19, 3, 14, 15, 20, 14, 20, 18, 14, 18, 21, 9, 21, 10, 9, 3, 19, 9, 19, 18, 9]
+  const crumpled = thicken(positions, indices, 0.0037, 1)
+  expect(solidCrossings(crumpled.positions, crumpled.indices).pairs).toBeGreaterThan(0)
+  expect(solidCrossings(crumpled.positions, crumpled.indices, Infinity, crumpled.origin).pairs).toBe(0)
+  const disk = createGrowingDisk()
+  for (let i = 0; i < 400; i++) disk.step(true)
+  const thick = thicken(disk.positions, disk.indices, 0.6, 1)
+  expect(solidCrossings(thick.positions, thick.indices, Infinity, thick.origin).pairs).toBeGreaterThan(0)
+}, 60000)

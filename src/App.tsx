@@ -176,7 +176,7 @@ export function App() {
       setSolidCheck({ solid, leaks: 0, pairs: 0, capped: false, vertices: [], failed: true })
       worker.terminate()
     }
-    const timer = window.setTimeout(() => worker.postMessage({ positions: solid.positions, indices: solid.indices, limit: CROSSING_LIMIT }), 200)
+    const timer = window.setTimeout(() => worker.postMessage({ positions: solid.positions, indices: solid.indices, origin: solid.origin, limit: CROSSING_LIMIT }), 200)
     return () => { window.clearTimeout(timer); worker.terminate() }
   }, [solid])
   const crossings = solidCheck?.solid === solid ? solidCheck : null
@@ -812,7 +812,7 @@ export function App() {
                 : crossings.leaks ? `The solid isn't closed along ${crossings.leaks.toLocaleString()} ${crossings.leaks === 1 ? 'edge' : 'edges'}, where the surface pinches to a point or its faces are turned inconsistently. Repair the STL in your CAD tool before printing.`
                 : crossings.pairs ? (disk.initialOverlap || disk.ignoringOverlaps
                   ? `The surface already crosses itself, so the wall does too, in ${crossingCount}${thickness.show ? ', shown in pink' : ''}. Combine the bodies in your CAD tool before printing.`
-                  : `The wall crosses itself in ${crossingCount}${thickness.show ? ', shown in pink' : ''}, where folds are closer together than the wall is thick. Most slicers merge these. For a clean solid, use a thinner wall, or grow with a larger Repel distance.`)
+                  : `The wall crosses itself in ${crossingCount}${thickness.show ? ', shown in pink' : ''}, where folds come closer together, or bend more tightly, than the wall is thick. Most slicers merge these. For a clean solid, use a thinner wall.`)
                   : `Closed solid with no crossings, ${(solid!.indices.length / 3).toLocaleString()} triangles.`}</p>
           </>}
           <div className="button-row">

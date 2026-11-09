@@ -84,7 +84,7 @@ Every layer can start and stop at timeline steps, and intensity keyframes ramp i
 | Longest side | The default disk has no units, so its solid, wall and rims included, is scaled to this length in millimeters. An uploaded STL keeps its own millimeters. |
 | Show in 3D view | Shows the solid while growth is paused. |
 
-Every fold of the grown surface is kept: the wall is offset along the surface, not rebuilt. Where folds come closer together than the wall is thick, the wall passes through itself. The app checks for this after each change and colors those places pink. It also checks that the solid is closed, and says so if the STL pinches to a point or has faces turned inconsistently. Most slicers merge them; for a clean solid, use a thinner wall, or grow with a larger **Repel distance** so folds stay further apart. A surface with no open rims is already closed and exports as it is.
+Every fold of the grown surface is kept: the wall is offset along the surface, not rebuilt. Where folds come closer together, or bend more tightly, than the wall is thick, the wall passes through itself. The app checks for this after each change and colors those places pink. It also checks that the solid is closed, and says so if the STL pinches to a point or has faces turned inconsistently. Most slicers merge them; for a clean solid, use a thinner wall, or grow with a larger **Repel distance** so folds stay further apart. A surface with no open rims is already closed and exports as it is.
 
 ## Controls
 

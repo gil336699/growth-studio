@@ -2,6 +2,6 @@
 // where does the wall cross itself?
 import { solidCrossings, solidLeaks } from './thicken'
 
-self.onmessage = ({ data }: MessageEvent<{ positions: Float32Array; indices: Uint32Array; limit: number }>) => {
-  self.postMessage({ leaks: solidLeaks(data.indices), ...solidCrossings(data.positions, data.indices, data.limit) })
+self.onmessage = ({ data }: MessageEvent<{ positions: Float32Array; indices: Uint32Array; origin: Uint32Array; limit: number }>) => {
+  self.postMessage({ leaks: solidLeaks(data.indices), ...solidCrossings(data.positions, data.indices, data.limit, data.origin) })
 }

@@ -1,5 +1,10 @@
 # Growth Studio Changelog
 
+## 0.8.3 2026-11-09
+
+- The wall check no longer reports overlaps at points where a grown sheet crumples. There its faces turn more than 90° apart, so no wall direction suits them all, and the wall overlaps within its own thickness of the point, whatever the wall. Slicers merge this, but it showed as pink spots that a thinner wall couldn't remove: 114 of them on a painted vase at 0.2 mm. Folds that meet, and bends tighter than the wall, are still reported.
+- The crossing message now names both causes: folds closer together, or bends tighter, than the wall is thick.
+
 ## 0.8.2 2026-11-09
 
 - Number boxes take what you type. The text is applied on Enter or when you leave the box, and clamped to its range then. Before, each keystroke was clamped: typing 80 over 100 in Longest side gave 100, and typing 300 into a cleared Stop at step gave 1,300. This covers Longest side, Stop at step, phase steps, and layer timing.
