@@ -7,11 +7,13 @@ import { STOP_DEFAULTS } from './diskProject'
 import type { PlayConfig, Snap } from './playback'
 
 // A stand-in for the simulation worker: the same runner, with messages copied and delivered asynchronously.
-function inProcessWorker(): WorkerLike {
+// busy drops the page's acknowledgements, as if it never got to draw, so only the first frame is ever sent.
+function inProcessWorker(busy = false): WorkerLike {
   let terminated = false
   const worker: WorkerLike = {
     onmessage: null,
     postMessage(message: ToRunner, transfer: Transferable[] = []) {
+      if (busy && message.kind === 'ack') return
       const copy = structuredClone(message, { transfer })
       setTimeout(() => { if (!terminated) runner.handle(copy) }, 0)
     },
@@ -108,6 +110,16 @@ it('stops at the Stop at step and when the phases finish', async () => {
   expect(phased.reason).toBe('Phases finished.')
   expect(phased.phases).toContain(1)
   expect(session.clock).toBe(46)
+  session.release()
+}, 30000)
+
+it('reports every phase even when the page is too busy to take frames', async () => {
+  const session = createDiskSession(createGrowingDisk(), { source: null, createWorker: () => inProcessWorker(true) })
+  const phases = [{ mode: 'grow' as const, steps: 10 }, { mode: 'relax' as const, steps: 6 }, { mode: 'grow' as const, steps: 4 }]
+  const run = await playToEnd(session, null, { ...CONFIG, phases }, true)
+  expect(run.reason).toBe('Phases finished.')
+  expect(run.phases).toEqual([1, 2])
+  expect(session.clock).toBe(20)
   session.release()
 }, 30000)
 

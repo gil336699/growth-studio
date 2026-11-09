@@ -1,5 +1,9 @@
 # Growth Studio Changelog
 
+## 0.8.1 2026-11-09
+
+- Run phases always shows each phase in the status, however short. The worker sends the page one frame at a time, so a phase of a few steps could start and end between two frames and never be shown. Each phase change is now sent on its own. This also fixes a test that failed now and then in CI.
+
 ## 0.8.0 2026-11-09
 
 - **Wall side** under Add thickness: put the wall on both sides of the surface, all outside, or all inside, so the grown surface stays the outer face (Inside) or the inner face (Outside). On the default disk the choices are Top and Bottom. Inside and outside follow the way the surface faces, so they mean the same on an STL wound either way.

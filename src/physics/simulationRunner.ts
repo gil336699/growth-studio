@@ -38,6 +38,9 @@ export type FromRunner =
   | { kind: 'frame'; frame: Frame }
   | { kind: 'stopped'; run: number; reason: string; frame: Frame }
   | { kind: 'snapshot'; snap: Snap }
+  // Sent as soon as a phase starts. Frames can be skipped while the page is busy, and a short phase could
+  // otherwise start and end between two of them.
+  | { kind: 'phase'; run: number; index: number }
   | { kind: 'snap'; id: number; snap: Snap }
   | { kind: 'error'; message: string }
 
@@ -127,7 +130,11 @@ export function createSimulationRunner(post: (message: FromRunner, transfer: Tra
       if (phase && --phase.remaining <= 0) {
         const next = phase.index + 1
         if (next >= phases.length) stop = 'Phases finished.'
-        else { phase.index = next; phase.remaining = phases[next].steps }
+        else {
+          phase.index = next
+          phase.remaining = phases[next].steps
+          post({ kind: 'phase', run: current.id, index: next }, [])
+        }
       }
     }
     if (!stop && !(current.phase && phases[current.phase.index]?.mode === 'relax') && !relaxing) stop = stopReached(d, stopAt)

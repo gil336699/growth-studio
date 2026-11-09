@@ -97,8 +97,6 @@ export function createDiskSession(disk: GrowingDisk, options: {
     if (frame.field) { m.field = take(m.field, frame.field); m.fieldRevision++ }
     m.localGrowth = take(m.localGrowth, frame.localGrowth)
     m.contactHeat = take(m.contactHeat, frame.contactHeat)
-    const phase = frame.stats.phaseIndex
-    if (phase !== null && phase !== m.stats.phaseIndex) handlers?.onPhase(phase)
     m.stats = frame.stats
   }
 
@@ -135,6 +133,7 @@ export function createDiskSession(disk: GrowingDisk, options: {
     if (released) return
     switch (data.kind) {
       case 'snapshot': handlers?.onSnapshot(data.snap); return
+      case 'phase': if (data.run === runId) handlers?.onPhase(data.index); return
       case 'frame': apply(data.frame); break
       case 'stopped':
         apply(data.frame)
