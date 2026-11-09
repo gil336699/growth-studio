@@ -483,6 +483,14 @@ export function App() {
     name: rimName(rims, rim.index), count: rimWaves(rim, disk.referencePositions, disk.positions),
   }))
   const detailLimit = disk.positions.length / 3 >= disk.growthBudget
+  // Advanced opens by itself when growth reaches the detail limit, so the control that raises it is in view.
+  // Only the user closes it: raising the limit ends the limit, and that must not fold the section away mid-drag.
+  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [limitShown, setLimitShown] = useState(false)
+  if (detailLimit !== limitShown) {
+    setLimitShown(detailLimit)
+    if (detailLimit) setAdvancedOpen(true)
+  }
   const contactStatus = disk.initialOverlap ? 'Starting mesh overlaps'
     : disk.stepStatus === 'contact' ? 'Contact blocked the last step'
       : disk.lastContactCorrections > 0 ? 'Contact corrected last step' : ''
@@ -621,7 +629,7 @@ export function App() {
             title="How quickly touching folds are pushed back each step." onChange={value => change('repelStrength', value)} />
         </details></section>
 
-        <section><details open={detailLimit || undefined}><summary data-tip="Mesh resolution, motion damping, and playback speed.">Advanced</summary>
+        <section><details open={advancedOpen} onToggle={event => setAdvancedOpen(event.currentTarget.open)}><summary data-tip="Mesh resolution, motion damping, and playback speed.">Advanced</summary>
           <Slider label="Damping" value={mechanics.damping} display={percent(mechanics.damping)} min={0.02} max={0.9} step={0.01}
             title="Calms wobbling after the sheet bends. Higher settles faster but looks stiffer." onChange={value => change('damping', value)} />
           <Slider label="Remesh edge length" value={mechanics.remeshLength} display={mechanics.remeshLength.toFixed(3)} min={0.09} max={0.25} step={0.005}

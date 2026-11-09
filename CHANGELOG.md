@@ -1,5 +1,9 @@
 # Growth Studio Changelog
 
+## 0.7.1 2026-11-09
+
+- Simulation › Advanced stays open while you drag Mesh detail limit. Before, raising the limit past the current vertex count folded the section shut, because it was held open only while the limit was reached. It still opens by itself when growth reaches the limit, and closes only when you close it.
+
 ## 0.7.0 2026-11-09
 
 - **Add thickness** under File › Export mesh turns the grown sheet into a solid for printing: a wall centered on the surface, closed along every open rim, which exports watertight.
