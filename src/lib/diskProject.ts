@@ -75,9 +75,10 @@ const validPhases = (phases: Phase[]) => Array.isArray(phases) && phases.length 
   && phases.every(phase => (phase.mode === 'grow' || phase.mode === 'relax') && count(phase.steps, 100_000) && phase.steps > 0)
 const validStop = (stop: StopAt) => ['none', 'size', 'step', 'strain'].includes(stop.kind) && finite(stop.value, 0, 1e6)
 const validThickness = (thickness: Thickness) => typeof thickness === 'object' && thickness !== null
-  && typeof thickness.on === 'boolean' && finite(thickness.wall, 0.05, 50) && Object.hasOwn(RIM_ROUNDNESS, thickness.rim)
+  && typeof thickness.on === 'boolean' && finite(thickness.wall, 0.05, 50)
+  && typeof thickness.rim === 'string' && Object.hasOwn(RIM_ROUNDNESS, thickness.rim)
   // Projects from 0.7.0 have no side and open with the wall on both sides.
-  && (thickness.side === undefined || Object.hasOwn(WALL_SHIFT, thickness.side))
+  && (thickness.side === undefined || (typeof thickness.side === 'string' && Object.hasOwn(WALL_SHIFT, thickness.side)))
   && finite(thickness.size, 1, 10_000) && typeof thickness.show === 'boolean'
 
 export function deserializeDiskProject(json: string) {
@@ -133,7 +134,8 @@ export function deserializeDiskProject(json: string) {
     ghost: project.ghost ?? false,
     phases: project.phases ?? [],
     stopAt: project.stopAt ?? STOP_DEFAULTS,
-    thickness: { ...THICKNESS_DEFAULTS, ...project.thickness },
+    // Growth Lab's version 1 had no thickness.
+    thickness: legacy ? THICKNESS_DEFAULTS : { ...THICKNESS_DEFAULTS, ...project.thickness },
     source: source && { ...source, positions: Float32Array.from(source.positions), indices: Uint32Array.from(source.indices) },
   }
 }

@@ -2,6 +2,7 @@ import { type ReactNode, useState } from 'react'
 import type { Phase } from '../lib/diskProject'
 import type { SnapshotMark } from '../lib/playback'
 import { rangeFill } from '../lib/rangeFill'
+import { NumberField } from './NumberField'
 
 type Props = {
   marks: SnapshotMark[]
@@ -67,8 +68,8 @@ export function Timeline(props: Props) {
           <select value={phase.mode} aria-label={`Phase ${i + 1} mode`} data-tip="Grow adds growth. Relax lets the shape settle." onChange={event => props.onPhases(phases.map((p, j) => j === i ? { ...p, mode: event.currentTarget.value as Phase['mode'] } : p))}>
             <option value="grow">Grow</option><option value="relax">Relax</option>
           </select>
-          <input className="number-input" type="number" min="1" step="10" aria-label={`Phase ${i + 1} steps`} data-tip="How many steps this phase runs." value={phase.steps}
-            onChange={event => props.onPhases(phases.map((p, j) => j === i ? { ...p, steps: Math.max(1, Math.round(Number(event.currentTarget.value) || 1)) } : p))} />
+          <NumberField min={1} step="10" aria-label={`Phase ${i + 1} steps`} data-tip="How many steps this phase runs." value={phase.steps}
+            onValue={steps => props.onPhases(phases.map((p, j) => j === i ? { ...p, steps: steps ?? 1 } : p))} />
           <button type="button" aria-label={`Remove phase ${i + 1}`} data-tip="Remove this phase." onClick={() => props.onPhases(phases.filter((_, j) => j !== i))}>×</button>
           {phaseIndex === i && <b className="phase-now">now</b>}
         </div>)}

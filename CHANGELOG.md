@@ -1,5 +1,15 @@
 # Growth Studio Changelog
 
+## 0.8.2 2026-11-09
+
+- Number boxes take what you type. The text is applied on Enter or when you leave the box, and clamped to its range then. Before, each keystroke was clamped: typing 80 over 100 in Longest side gave 100, and typing 300 into a cleared Stop at step gave 1,300. This covers Longest side, Stop at step, phase steps, and layer timing.
+- The default disk's solid is now its chosen longest side with the wall and rims included. Before, only the sheet was measured, so a 100 mm disk with a 5 mm wall exported 105 mm long.
+- Outside and Inside keep to the same side as an STL grows. They are now worked out from the starting surface, and a nearly flat STL counts as a sheet facing up. Before, a flat STL could switch sides between pauses.
+- The solid check also reports when the solid isn't closed, for an STL that pinches to a point or has faces turned inconsistently. Before, those showed as "Closed solid with no crossings."
+- A rim edge on a zero-area triangle keeps its rounded edge instead of folding flat into the sheet, and zero-area triangles no longer count as crossings.
+- Exactly 1,000 crossings reads as 1,000, not "more than 1,000". If the check can't run, the panel says so instead of showing "Checking the wall…" forever.
+- A project file with a list where a wall side or rim edge name belongs is refused, instead of opening and leaving the page blank.
+
 ## 0.8.1 2026-11-09
 
 - Run phases always shows each phase in the status, however short. The worker sends the page one frame at a time, so a phase of a few steps could start and end between two frames and never be shown. Each phase change is now sent on its own. This also fixes a test that failed now and then in CI.

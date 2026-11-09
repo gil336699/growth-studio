@@ -105,7 +105,9 @@ export function thicken(positions: ArrayLike<number>, indices: ArrayLike<number>
   let slots = 0
   for (const [a, b, f] of rim) {
     const e = [at(b, 0) - at(a, 0), at(b, 1) - at(a, 1), at(b, 2) - at(a, 2)]
-    const fn = [faceNormals[f * 3], faceNormals[f * 3 + 1], faceNormals[f * 3 + 2]]
+    let fn = [faceNormals[f * 3], faceNormals[f * 3 + 1], faceNormals[f * 3 + 2]]
+    // A face with no area has no normal of its own, so lean on its rim vertices' normals instead.
+    if (!fn[0] && !fn[1] && !fn[2]) fn = [0, 1, 2].map(axis => normals[a * 3 + axis] + normals[b * 3 + axis])
     const o = [e[1] * fn[2] - e[2] * fn[1], e[2] * fn[0] - e[0] * fn[2], e[0] * fn[1] - e[1] * fn[0]]
     const length = Math.hypot(o[0], o[1], o[2]) || 1
     for (const v of [a, b]) {
@@ -165,28 +167,60 @@ export function thicken(positions: ArrayLike<number>, indices: ArrayLike<number>
 
 // +1 when the faces point to the outside: away from the middle of a form such as a vase, or up for a sheet such as
 // the default disk. -1 when they point the other way, so Outside and Inside mean what they say either way.
+// A form that is nearly flat has no clear middle to point away from, so it counts as a sheet and uses up.
+// Give it the starting shape: the answer then can't change as the model grows.
 export function facingSign(positions: ArrayLike<number>, indices: ArrayLike<number>, toward: 'outward' | 'up') {
   const n = positions.length / 3
-  const center = [0, 0, 0]
-  for (let v = 0; v < n; v++) for (let axis = 0; axis < 3; axis++) center[axis] += positions[v * 3 + axis] / n
-  let sum = 0
+  const center = [0, 0, 0], low = [Infinity, Infinity, Infinity], high = [-Infinity, -Infinity, -Infinity]
+  for (let v = 0; v < n; v++) {
+    for (let axis = 0; axis < 3; axis++) {
+      const value = positions[v * 3 + axis]
+      center[axis] += value / n
+      low[axis] = Math.min(low[axis], value)
+      high[axis] = Math.max(high[axis], value)
+    }
+  }
+  const extent = Math.hypot(...high.map((value, axis) => value - low[axis])) || 1
+  let away = 0, up = 0, total = 0
   for (let f = 0; f < indices.length; f += 3) {
     const [a, b, c] = [indices[f], indices[f + 1], indices[f + 2]]
     const u = [0, 1, 2].map(axis => positions[b * 3 + axis] - positions[a * 3 + axis])
     const w = [0, 1, 2].map(axis => positions[c * 3 + axis] - positions[a * 3 + axis])
     // Twice the face's area along its normal.
     const normal = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]]
-    if (toward === 'up') { sum += normal[1]; continue }
+    up += normal[1]
+    total += Math.hypot(normal[0], normal[1], normal[2])
     for (let axis = 0; axis < 3; axis++) {
-      sum += normal[axis] * ((positions[a * 3 + axis] + positions[b * 3 + axis] + positions[c * 3 + axis]) / 3 - center[axis])
+      away += normal[axis] * ((positions[a * 3 + axis] + positions[b * 3 + axis] + positions[c * 3 + axis]) / 3 - center[axis])
     }
   }
+  const sum = toward === 'outward' && Math.abs(away) > 0.05 * total * extent ? away : up
   return sum < 0 ? -1 : 1
 }
 
+// Edges of a solid that are not shared by exactly two faces turned opposite ways: 0 means it is closed.
+// A surface that pinches to a point, or whose faces are turned inconsistently, leaves some.
+export function solidLeaks(indices: ArrayLike<number>) {
+  let n = 0
+  for (let i = 0; i < indices.length; i++) n = Math.max(n, indices[i] + 1)
+  const directed = new Map<number, number>()
+  for (let f = 0; f < indices.length; f += 3) {
+    for (let k = 0; k < 3; k++) {
+      const key = indices[f + k] * n + indices[f + (k + 1) % 3]
+      directed.set(key, (directed.get(key) ?? 0) + 1)
+    }
+  }
+  let leaks = 0
+  for (const [key, count] of directed) {
+    const a = Math.floor(key / n), b = key % n
+    if (count !== 1 || directed.get(b * n + a) !== 1) leaks++
+  }
+  return leaks
+}
+
 // Places where the solid's wall passes through itself, as the solid vertices involved. Faces that share a
-// vertex touch by construction and are not counted. Counting stops at limit, since a surface that already
-// crosses itself can cross in millions of places.
+// vertex touch by construction and are not counted. Counting stops once there are more than limit, since a surface
+// that already crosses itself can cross in millions of places; capped then says there are more than limit.
 export function solidCrossings(positions: Float32Array, indices: Uint32Array, limit = Infinity) {
   const geometry = new BufferGeometry()
   geometry.setAttribute('position', new BufferAttribute(positions, 3))
@@ -200,13 +234,14 @@ export function solidCrossings(positions: Float32Array, indices: Uint32Array, li
     intersectsTriangles(first, second, i, j) {
       if (i >= j) return false
       for (let u = 0; u < 3; u++) for (let w = 0; w < 3; w++) if (order[i * 3 + u] === order[j * 3 + w]) return false
-      if (!first.intersectsTriangle(second)) return false
+      // A face with no area, such as a sliver in an STL, can't pass through anything, though the test says it touches.
+      if (first.getArea() < 1e-14 || second.getArea() < 1e-14 || !first.intersectsTriangle(second)) return false
       pairs++
       for (let k = 0; k < 3; k++) { vertices.add(order[i * 3 + k]); vertices.add(order[j * 3 + k]) }
-      return pairs >= limit
+      return pairs > limit
     },
   })
-  return { pairs, capped: pairs >= limit, vertices: [...vertices] }
+  return { pairs: Math.min(pairs, limit), capped: pairs > limit, vertices: [...vertices] }
 }
 
 // Millimeters per model unit for printing: an STL keeps its own millimeters, and the default disk is scaled

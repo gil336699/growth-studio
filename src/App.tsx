@@ -3,6 +3,7 @@ import { Vector3 } from 'three'
 import { LayersPanel } from './components/LayersPanel'
 import { Icon } from './components/Icon'
 import { Modal } from './components/Modal'
+import { NumberField } from './components/NumberField'
 import { Timeline } from './components/Timeline'
 import { TooltipLayer } from './components/Tooltip'
 import { TabPanel, Tabs } from './components/Tabs'
@@ -138,27 +139,41 @@ export function App() {
   const canSimulate = !loading && !disk.initialOverlap && disk.canGrow
   const selectedLayer = layers.find(layer => layer.id === selectedLayerId) ?? layers[0]
 
-  // Thickness for printing: a wall on both sides of the surface, closed along the open rims.
+  // Thickness for printing: a wall on one or both sides of the surface, closed along the open rims.
   // The 3D view shows the solid while growth is paused, and Export writes it.
   const canThicken = rims.length > 0
   const solidOn = thickness.on && canThicken
-  const mmPerUnit = printScale(disk.positions, input?.scale ?? null, thickness.size)
-  // Outside and Inside follow the way the faces point: away from the middle of an STL, or up from the default disk.
-  const makeSolid = (wallMm: number, rim: RimProfile, side: WallSide) => thicken(disk.positions, disk.indices, wallMm / mmPerUnit, RIM_ROUNDNESS[rim], 4,
-    side === 'both' ? 0 : WALL_SHIFT[side] * facingSign(disk.positions, disk.indices, input ? 'outward' : 'up'))
+  // Outside and Inside follow the way the starting surface faces: away from the middle of an STL, or up from the disk.
+  // An STL keeps its own millimeters. The default disk is scaled so the solid itself, wall and rims included, has the
+  // chosen longest side; scaling the sheet alone made a 100 mm disk with a 5 mm wall export 105 mm long.
+  const makeSolid = (wallMm: number, rim: RimProfile, side: WallSide, size: number) => {
+    const shift = side === 'both' ? 0 : WALL_SHIFT[side] * facingSign(disk.referencePositions, disk.indices, input ? 'outward' : 'up')
+    const build = (scale: number) => thicken(disk.positions, disk.indices, wallMm / scale, RIM_ROUNDNESS[rim], 4, shift)
+    if (input) return { solid: build(input.scale), mmPerUnit: input.scale }
+    let mmPerUnit = printScale(disk.positions, null, size), solid = build(mmPerUnit)
+    for (let pass = 0; pass < 2; pass++) { mmPerUnit = printScale(solid.positions, null, size); solid = build(mmPerUnit) }
+    return { solid, mmPerUnit }
+  }
   // Deferred, so dragging the wall slider stays smooth on a dense mesh.
-  const wall = useDeferredValue(thickness.wall), rimProfile = useDeferredValue(thickness.rim), wallSide = useDeferredValue(thickness.side)
-  const solid = useMemo(() => solidOn && !active ? makeSolid(wall, rimProfile, wallSide) : null,
+  const wall = useDeferredValue(thickness.wall), rimProfile = useDeferredValue(thickness.rim)
+  const wallSide = useDeferredValue(thickness.side), printSize = useDeferredValue(thickness.size)
+  const solid = useMemo(() => solidOn && !active ? makeSolid(wall, rimProfile, wallSide, printSize).solid : null,
   // Positions change in place; the geometry revision tracks them.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  [solidOn, active, disk, disk.indices, disk.geometryRevision, wall, rimProfile, wallSide, mmPerUnit, input])
-  // Where the wall crosses itself, found in a worker since a dense mesh takes seconds.
-  const [solidCheck, setSolidCheck] = useState<{ solid: Solid; pairs: number; capped: boolean; vertices: number[] } | null>(null)
+  [solidOn, active, disk, disk.indices, disk.geometryRevision, wall, rimProfile, wallSide, printSize, input])
+  // Whether the solid is closed and where its wall crosses itself, found in a worker since a dense mesh takes seconds.
+  type SolidCheck = { leaks: number; pairs: number; capped: boolean; vertices: number[]; failed?: boolean }
+  const [solidCheck, setSolidCheck] = useState<SolidCheck & { solid: Solid } | null>(null)
   useEffect(() => {
     if (!solid) return
     const worker = new Worker(new URL('./lib/solidCheck.worker.ts', import.meta.url), { type: 'module' })
-    worker.onmessage = ({ data }: MessageEvent<{ pairs: number; capped: boolean; vertices: number[] }>) => {
+    worker.onmessage = ({ data }: MessageEvent<SolidCheck>) => {
       setSolidCheck({ solid, ...data })
+      worker.terminate()
+    }
+    worker.onerror = event => {
+      event.preventDefault()
+      setSolidCheck({ solid, leaks: 0, pairs: 0, capped: false, vertices: [], failed: true })
       worker.terminate()
     }
     const timer = window.setTimeout(() => worker.postMessage({ positions: solid.positions, indices: solid.indices, limit: CROSSING_LIMIT }), 200)
@@ -168,7 +183,7 @@ export function App() {
   // A change to the solid makes the last export's message out of date.
   const changeThickness = (patch: Partial<Thickness>) => { setThickness(current => ({ ...current, ...patch })); setExportStatus(''); touch() }
   const sideName = thickness.side === 'both' ? '' : (WALL_SIDES.find(s => s.side === thickness.side)![input ? 'stl' : 'disk'][0]).toLowerCase()
-  const crossingCount = crossings ? `${crossings.capped ? 'more than ' : ''}${crossings.pairs.toLocaleString()} ${crossings.pairs === 1 ? 'place' : 'places'}` : ''
+  const crossingCount = crossings ? `${crossings.capped ? 'more than ' : ''}${crossings.pairs.toLocaleString()} ${crossings.pairs === 1 && !crossings.capped ? 'place' : 'places'}` : ''
   const showSolid = Boolean(solid && thickness.show)
 
   const applyLayers = useCallback((next: GrowthLayer[], target = disk) => {
@@ -269,10 +284,10 @@ export function App() {
     : result === 'downloaded' ? `Download requested for ${filename}. If no file appears, open Growth Studio in Chrome or Safari.`
       : result === 'cancelled' ? 'Save cancelled.' : `Could not save ${filename}.`
   const exportMesh = async (format: 'obj' | 'stl') => {
-    const made = solidOn ? makeSolid(thickness.wall, thickness.rim, thickness.side) : null
-    const surface = made?.positions ?? disk.positions, indices = made?.indices ?? disk.indices
+    const made = solidOn ? makeSolid(thickness.wall, thickness.rim, thickness.side, thickness.size) : null
+    const surface = made?.solid.positions ?? disk.positions, indices = made?.solid.indices ?? disk.indices
     // A solid is written in millimeters: the STL's own, or the default disk at its chosen size.
-    const positions = input ? growthExportPositions(surface, input, centerExport) : made ? surface.map(value => value * mmPerUnit) : surface
+    const positions = input ? growthExportPositions(surface, input, centerExport) : made ? surface.map(value => value * made.mmPerUnit) : surface
     const name = made ? `${snapshotName}-solid` : snapshotName
     const data = format === 'obj' ? exportObj(positions, indices, name) : exportBinaryStl(positions, indices, name)
     const filename = `${name}.${format}`
@@ -623,8 +638,8 @@ export function App() {
             title="Stop when the form is this many times its starting size." onChange={value => setStopAt({ kind: 'size', value })} />}
           {stopAt.kind === 'strain' && <Slider label="Stop at strain" value={stopAt.value} display={percent(stopAt.value)} min={0.1} max={10} step={0.1}
             title="Stop when the most-grown area reaches this strain." onChange={value => setStopAt({ kind: 'strain', value })} />}
-          {stopAt.kind === 'step' && <label data-tip="Stop when the timeline reaches this step.">Stop at step<input className="number-input" type="number" min="1" step="50" value={stopAt.value}
-            onChange={event => setStopAt({ kind: 'step', value: Math.max(1, Math.round(Number(event.currentTarget.value) || 1)) })} /></label>}
+          {stopAt.kind === 'step' && <label data-tip="Stop when the timeline reaches this step.">Stop at step<NumberField min={1} step="50" value={stopAt.value}
+            onValue={value => setStopAt({ kind: 'step', value: value ?? 1 })} /></label>}
         </section>
 
         <section><details><summary data-tip="Pull the growing area in one direction, so folds droop or lean. The rest of the model stays put.">Gravity{mechanics.gravity > 0 ? ` · ${percent(mechanics.gravity)}` : ''}</summary>
@@ -788,12 +803,13 @@ export function App() {
               </div>
             </div>
             {!input && <label data-tip="The default disk has no units. Export scales the solid so its longest side is this long.">Longest side (mm)
-              <input className="number-input" type="number" min="10" max="1000" step="5" value={thickness.size}
-                onChange={event => changeThickness({ size: Math.min(1000, Math.max(10, Number(event.currentTarget.value) || 100)) })} /></label>}
+              <NumberField min={10} max={1000} step="5" value={thickness.size} onValue={size => changeThickness({ size: size ?? 100 })} /></label>}
             <label data-tip="Show the solid in the 3D view while growth is paused. Growth itself always uses the thin sheet."><span>Show in 3D view <input type="checkbox" checked={thickness.show}
               onChange={event => { const show = event.currentTarget.checked; setThickness(current => ({ ...current, show })) }} /></span></label>
             <p className="hint" role="status">{active ? 'The wall is checked when growth pauses.'
               : !crossings ? 'Checking the wall…'
+                : crossings.failed ? "The wall couldn't be checked in this browser. The solid still exports."
+                : crossings.leaks ? `The solid isn't closed along ${crossings.leaks.toLocaleString()} ${crossings.leaks === 1 ? 'edge' : 'edges'}, where the surface pinches to a point or its faces are turned inconsistently. Repair the STL in your CAD tool before printing.`
                 : crossings.pairs ? (disk.initialOverlap || disk.ignoringOverlaps
                   ? `The surface already crosses itself, so the wall does too, in ${crossingCount}${thickness.show ? ', shown in pink' : ''}. Combine the bodies in your CAD tool before printing.`
                   : `The wall crosses itself in ${crossingCount}${thickness.show ? ', shown in pink' : ''}, where folds are closer together than the wall is thick. Most slicers merge these. For a clean solid, use a thinner wall, or grow with a larger Repel distance.`)

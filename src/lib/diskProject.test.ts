@@ -119,6 +119,9 @@ it('keeps the print thickness settings, and opens older projects with thickness 
   expect(() => deserializeDiskProject(serializeDiskProject({ ...base, thickness: { ...thickness, rim: 'chamfer' as never } }))).toThrow('invalid design data')
   expect(() => deserializeDiskProject(serializeDiskProject({ ...base, thickness: { ...thickness, wall: 0 } }))).toThrow('invalid design data')
   expect(() => deserializeDiskProject(serializeDiskProject({ ...base, thickness: { ...thickness, side: 'middle' as never } }))).toThrow('invalid design data')
+  // Lists where names belong, which once passed and then blanked the page.
+  expect(() => deserializeDiskProject(serializeDiskProject({ ...base, thickness: { ...thickness, side: ['outside'] as never } }))).toThrow('invalid design data')
+  expect(() => deserializeDiskProject(serializeDiskProject({ ...base, thickness: { ...thickness, rim: ['round'] as never } }))).toThrow('invalid design data')
   // Saved by 0.7.0, before the wall could go on one side.
   const older: Partial<typeof thickness> = { ...thickness }
   delete older.side

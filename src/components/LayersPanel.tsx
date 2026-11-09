@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { createLayer, LAYER_LABELS, timeFactor, type GrowthLayer, type LayerKind, type LayerTiming } from '../physics/growthLayers'
 import { rangeFill } from '../lib/rangeFill'
+import { NumberField } from './NumberField'
 import { rimName, type Tool } from '../lib/tools'
 
 type Rim = { index: number; vertices: number[]; height: number }
@@ -81,22 +82,20 @@ function TimingCurve({ timing, end }: { timing: LayerTiming; end: number }) {
 function TimingEditor({ layer, end, update }: { layer: GrowthLayer; end: number; update: (patch: Partial<GrowthLayer>) => void }) {
   const { timing } = layer
   const set = (patch: Partial<LayerTiming>) => update({ timing: { ...timing, ...patch } })
-  const number = (value: string) => Math.max(0, Math.round(Number(value) || 0))
   return <details className="layer-timing">
     <summary data-tip="Start, stop, or ramp this layer at points on the timeline.">Timing</summary>
     <div className="timing-row">
       <label data-tip="Timeline step when this layer starts growing.">Starts at step
-        <input className="number-input" type="number" min="0" step="10" value={timing.start} onChange={event => set({ start: number(event.currentTarget.value) })} />
+        <NumberField min={0} step="10" value={timing.start} onValue={start => set({ start: start ?? 0 })} />
       </label>
       <label data-tip="Timeline step when this layer stops. Leave empty to keep growing.">Stops at step
-        <input className="number-input" type="number" min="0" step="10" placeholder="Never" value={timing.end ?? ''}
-          onChange={event => set({ end: event.currentTarget.value === '' ? null : number(event.currentTarget.value) })} />
+        <NumberField min={0} step="10" placeholder="Never" allowEmpty value={timing.end} onValue={end => set({ end })} />
       </label>
     </div>
     <p className="hint">Intensity keyframes ramp this layer up or down over time.</p>
     {timing.keys.map((key, i) => <div className="key-row" key={i}>
-      <input className="number-input" type="number" min="0" step="10" aria-label={`Keyframe ${i + 1} step`} data-tip="Timeline step of this keyframe." value={key.step}
-        onChange={event => set({ keys: timing.keys.map((k, j) => j === i ? { ...k, step: number(event.currentTarget.value) } : k) })} />
+      <NumberField min={0} step="10" aria-label={`Keyframe ${i + 1} step`} data-tip="Timeline step of this keyframe." value={key.step}
+        onValue={step => set({ keys: timing.keys.map((k, j) => j === i ? { ...k, step: step ?? 0 } : k) })} />
       <input type="range" min="0" max="1" step="0.05" aria-label={`Keyframe ${i + 1} intensity`} data-tip="Layer intensity at this step. Between keyframes it changes smoothly." value={key.value} style={rangeFill(key.value, 0, 1)}
         onChange={event => set({ keys: timing.keys.map((k, j) => j === i ? { ...k, value: event.currentTarget.valueAsNumber } : k) })} />
       <b>{percent(key.value)}</b>

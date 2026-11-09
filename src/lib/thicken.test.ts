@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createGrowingDisk } from '../physics/growingDisk'
-import { facingSign, printScale, RIM_ROUNDNESS, rimProfile, solidCrossings, thicken, type RimProfile } from './thicken'
+import { facingSign, printScale, RIM_ROUNDNESS, rimProfile, solidCrossings, solidLeaks, thicken, type RimProfile } from './thicken'
 
 // Every edge used by exactly two faces, once in each direction: closed, with faces turned consistently.
 function openEdges(indices: Uint32Array) {
@@ -167,3 +167,55 @@ it('tells which way the faces point', () => {
   expect(Math.max(...radii)).toBeGreaterThan(1.09)
   expect(openEdges(solid.indices)).toBe(0)
 })
+
+// A flat grid of quads in the xz plane, faces turned up.
+function grid(size = 6) {
+  const positions: number[] = [], indices: number[] = []
+  for (let z = 0; z <= size; z++) for (let x = 0; x <= size; x++) positions.push(x / size, 0, z / size)
+  const at = (x: number, z: number) => z * (size + 1) + x
+  for (let z = 0; z < size; z++) for (let x = 0; x < size; x++) indices.push(at(x, z), at(x, z + 1), at(x + 1, z), at(x + 1, z), at(x, z + 1), at(x + 1, z + 1))
+  return { positions, indices }
+}
+
+it('treats a nearly flat STL as a sheet, so Outside stays on the same side as it grows', () => {
+  const { positions, indices } = grid()
+  const up = facingSign(positions, indices, 'up')
+  // A very shallow bowl: its faces tilt toward the middle, which read as facing in, though it is a sheet facing up.
+  const bowl = positions.map((value, i) => i % 3 === 1 ? 0.02 * ((positions[i - 1] - 0.5) ** 2 + (positions[i + 1] - 0.5) ** 2) : value)
+  expect(facingSign(bowl, indices, 'outward')).toBe(up)
+})
+
+it('reports a solid that is not closed', () => {
+  const { positions, indices } = grid()
+  expect(solidLeaks(thicken(positions, indices, 0.05, 1).indices)).toBe(0)
+  // Two squares that touch at one corner only.
+  const pinch = { positions: [0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 2, 0, 1, 2, 0, 2, 1, 0, 2], indices: [0, 3, 1, 1, 3, 2, 2, 6, 4, 4, 6, 5] }
+  expect(solidLeaks(thicken(pinch.positions, pinch.indices, 0.05, 1).indices)).toBeGreaterThan(0)
+  // Half the faces turned the other way.
+  const flipped = indices.map((_, i) => i < indices.length / 2 ? indices[i - i % 3 + 2 - i % 3] : indices[i])
+  expect(solidLeaks(thicken(positions, flipped, 0.05, 1).indices)).toBeGreaterThan(0)
+})
+
+it('keeps the rim round past a face with no area', () => {
+  const { positions, indices } = grid()
+  // A sliver on the z = 0 rim: its three corners lie on one line.
+  const n = positions.length / 3
+  positions.push(0.5 / 6, 0, 0)
+  indices.push(0, 1, n)
+  const solid = thicken(positions, indices, 0.1, 1)
+  expect(solidLeaks(solid.indices)).toBe(0)
+  const axis = (k: number) => Array.from({ length: solid.positions.length / 3 }, (_, v) => solid.positions[v * 3 + k])
+  expect(Math.min(...axis(1))).toBeCloseTo(-0.05, 6)
+  expect(Math.max(...axis(1))).toBeCloseTo(0.05, 6)
+  // The rim still rounds out past z = 0 by half the wall, instead of folding flat into the sheet.
+  expect(Math.min(...axis(2))).toBeCloseTo(-0.05, 3)
+})
+
+it('says more than the limit only when there are more', () => {
+  const disk = createGrowingDisk()
+  for (let i = 0; i < 300; i++) disk.step(true)
+  const solid = thicken(disk.positions, disk.indices, 0.6, 1)
+  const all = solidCrossings(solid.positions, solid.indices)
+  expect(solidCrossings(solid.positions, solid.indices, all.pairs)).toMatchObject({ pairs: all.pairs, capped: false })
+  expect(solidCrossings(solid.positions, solid.indices, all.pairs - 1)).toMatchObject({ pairs: all.pairs - 1, capped: true })
+}, 60000)
