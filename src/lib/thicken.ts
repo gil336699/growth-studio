@@ -1,9 +1,12 @@
-// Turns an open surface into a printable solid: a wall of even thickness centered on the surface, closed along
-// the open rims with a round, soft, or square edge. The surface keeps every fold; nothing is resampled.
+// Turns an open surface into a printable solid: a wall of even thickness on one or both sides of the surface,
+// closed along the open rims with a round, soft, or square edge. The surface keeps every fold; nothing is resampled.
 import { BufferAttribute, BufferGeometry, Matrix4 } from 'three'
 import { MeshBVH } from 'three-mesh-bvh'
 
 export type RimProfile = 'round' | 'soft' | 'square'
+// Where the wall goes: centered on the surface, or all of it on the outside or the inside.
+export type WallSide = 'both' | 'outside' | 'inside'
+export const WALL_SHIFT: Record<WallSide, number> = { both: 0, outside: 1, inside: -1 }
 // How much of the half-thickness the rim's corners round off: 1 is a half-circle, 0 a flat cut.
 export const RIM_ROUNDNESS: Record<RimProfile, number> = { round: 1, soft: 0.5, square: 0 }
 
@@ -33,9 +36,12 @@ export function rimProfile(half: number, roundness: number, quarterSegments = 4)
   return points
 }
 
-export function thicken(positions: ArrayLike<number>, indices: ArrayLike<number>, thickness: number, roundness: number, quarterSegments = 4): Solid {
+// shift moves the wall along the face normals: 0 centers it on the surface, 1 puts all of it on the side the faces
+// point to, and -1 all of it on the other side, so the surface itself stays one face of the solid.
+export function thicken(positions: ArrayLike<number>, indices: ArrayLike<number>, thickness: number, roundness: number,
+  quarterSegments = 4, shift = 0): Solid {
   const n = positions.length / 3, faces = indices.length / 3
-  const half = thickness / 2
+  const half = thickness / 2, middle = half * Math.min(1, Math.max(-1, shift))
   const at = (v: number, axis: number) => positions[v * 3 + axis]
 
   // Unit face normals, angle-weighted vertex normals, and each corner's angle.
@@ -114,10 +120,10 @@ export function thicken(positions: ArrayLike<number>, indices: ArrayLike<number>
   const out = new Float32Array((2 * n + slots * inner) * 3)
   const origin = new Uint32Array(2 * n + slots * inner)
   for (let v = 0; v < n; v++) {
-    const offset = half * stretch(v)
+    const k = stretch(v)
     for (let axis = 0; axis < 3; axis++) {
-      out[v * 3 + axis] = at(v, axis) + normals[v * 3 + axis] * offset
-      out[(n + v) * 3 + axis] = at(v, axis) - normals[v * 3 + axis] * offset
+      out[v * 3 + axis] = at(v, axis) + normals[v * 3 + axis] * (middle + half) * k
+      out[(n + v) * 3 + axis] = at(v, axis) + normals[v * 3 + axis] * (middle - half) * k
     }
     origin[v] = v
     origin[n + v] = v
@@ -134,7 +140,7 @@ export function thicken(positions: ArrayLike<number>, indices: ArrayLike<number>
     for (let j = 1; j <= inner; j++) {
       const [u, w] = profile[j]
       const index = 2 * n + s * inner + j - 1
-      for (let axis = 0; axis < 3; axis++) out[index * 3 + axis] = at(v, axis) + o[axis] / length * u + normal[axis] * w * k
+      for (let axis = 0; axis < 3; axis++) out[index * 3 + axis] = at(v, axis) + o[axis] / length * u + normal[axis] * (middle + w) * k
       origin[index] = v
     }
   }
@@ -155,6 +161,27 @@ export function thicken(positions: ArrayLike<number>, indices: ArrayLike<number>
     }
   }
   return { positions: out, indices: triangles, origin, rimEdges: rim.length }
+}
+
+// +1 when the faces point to the outside: away from the middle of a form such as a vase, or up for a sheet such as
+// the default disk. -1 when they point the other way, so Outside and Inside mean what they say either way.
+export function facingSign(positions: ArrayLike<number>, indices: ArrayLike<number>, toward: 'outward' | 'up') {
+  const n = positions.length / 3
+  const center = [0, 0, 0]
+  for (let v = 0; v < n; v++) for (let axis = 0; axis < 3; axis++) center[axis] += positions[v * 3 + axis] / n
+  let sum = 0
+  for (let f = 0; f < indices.length; f += 3) {
+    const [a, b, c] = [indices[f], indices[f + 1], indices[f + 2]]
+    const u = [0, 1, 2].map(axis => positions[b * 3 + axis] - positions[a * 3 + axis])
+    const w = [0, 1, 2].map(axis => positions[c * 3 + axis] - positions[a * 3 + axis])
+    // Twice the face's area along its normal.
+    const normal = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]]
+    if (toward === 'up') { sum += normal[1]; continue }
+    for (let axis = 0; axis < 3; axis++) {
+      sum += normal[axis] * ((positions[a * 3 + axis] + positions[b * 3 + axis] + positions[c * 3 + axis]) / 3 - center[axis])
+    }
+  }
+  return sum < 0 ? -1 : 1
 }
 
 // Places where the solid's wall passes through itself, as the solid vertices involved. Faces that share a

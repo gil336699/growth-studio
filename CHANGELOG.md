@@ -1,5 +1,11 @@
 # Growth Studio Changelog
 
+## 0.8.0 2026-11-09
+
+- **Wall side** under Add thickness: put the wall on both sides of the surface, all outside, or all inside, so the grown surface stays the outer face (Inside) or the inner face (Outside). On the default disk the choices are Top and Bottom. Inside and outside follow the way the surface faces, so they mean the same on an STL wound either way.
+- The last export's message clears when the thickness settings change or another model is loaded, instead of describing a file made with other settings.
+- Projects saved by 0.7.0 open with the wall on both sides.
+
 ## 0.7.1 2026-11-09
 
 - Simulation › Advanced stays open while you drag Mesh detail limit. Before, raising the limit past the current vertex count folded the section shut, because it was held open only while the limit was reached. It still opens by itself when growth reaches the limit, and closes only when you close it.

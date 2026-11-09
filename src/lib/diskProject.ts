@@ -1,7 +1,7 @@
 import type { GrowthStlSource } from '../physics/growthStl'
 import { DISK_DEFAULTS, type DiskSnapshot } from '../physics/growingDisk'
 import { validLayers } from '../physics/growthLayers'
-import { RIM_ROUNDNESS, type RimProfile } from './thicken'
+import { RIM_ROUNDNESS, WALL_SHIFT, type RimProfile, type WallSide } from './thicken'
 
 // Kept from Growth Lab so projects saved there still open here.
 const SCHEMA = 'growth-lab/disk-project'
@@ -13,11 +13,11 @@ export type BrushSettings = { radius: number; strength: number; hardness: number
 export type Phase = { mode: 'grow' | 'relax'; steps: number }
 export type StopAt = { kind: 'none' | 'size' | 'step' | 'strain'; value: number }
 // Wall for printing, in millimeters. size is the default disk's longest side; an STL keeps its own millimeters.
-export type Thickness = { on: boolean; wall: number; rim: RimProfile; size: number; show: boolean }
+export type Thickness = { on: boolean; wall: number; side: WallSide; rim: RimProfile; size: number; show: boolean }
 
 export const BRUSH_DEFAULTS: BrushSettings = { radius: 0.15, strength: 1, hardness: 0, symmetry: 'off', copies: 6 }
 export const STOP_DEFAULTS: StopAt = { kind: 'none', value: 2 }
-export const THICKNESS_DEFAULTS: Thickness = { on: false, wall: 1.2, rim: 'round', size: 100, show: true }
+export const THICKNESS_DEFAULTS: Thickness = { on: false, wall: 1.2, side: 'both', rim: 'round', size: 100, show: true }
 
 type ProjectSource = Omit<GrowthStlSource, 'positions' | 'indices'> & { positions: number[]; indices: number[] }
 export type DiskProject = {
@@ -76,6 +76,8 @@ const validPhases = (phases: Phase[]) => Array.isArray(phases) && phases.length 
 const validStop = (stop: StopAt) => ['none', 'size', 'step', 'strain'].includes(stop.kind) && finite(stop.value, 0, 1e6)
 const validThickness = (thickness: Thickness) => typeof thickness === 'object' && thickness !== null
   && typeof thickness.on === 'boolean' && finite(thickness.wall, 0.05, 50) && Object.hasOwn(RIM_ROUNDNESS, thickness.rim)
+  // Projects from 0.7.0 have no side and open with the wall on both sides.
+  && (thickness.side === undefined || Object.hasOwn(WALL_SHIFT, thickness.side))
   && finite(thickness.size, 1, 10_000) && typeof thickness.show === 'boolean'
 
 export function deserializeDiskProject(json: string) {
@@ -131,7 +133,7 @@ export function deserializeDiskProject(json: string) {
     ghost: project.ghost ?? false,
     phases: project.phases ?? [],
     stopAt: project.stopAt ?? STOP_DEFAULTS,
-    thickness: project.thickness ?? THICKNESS_DEFAULTS,
+    thickness: { ...THICKNESS_DEFAULTS, ...project.thickness },
     source: source && { ...source, positions: Float32Array.from(source.positions), indices: Uint32Array.from(source.indices) },
   }
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createGrowingDisk } from '../physics/growingDisk'
-import { printScale, RIM_ROUNDNESS, rimProfile, solidCrossings, thicken, type RimProfile } from './thicken'
+import { facingSign, printScale, RIM_ROUNDNESS, rimProfile, solidCrossings, thicken, type RimProfile } from './thicken'
 
 // Every edge used by exactly two faces, once in each direction: closed, with faces turned consistently.
 function openEdges(indices: Uint32Array) {
@@ -123,3 +123,47 @@ it('stops counting crossings at the limit', () => {
   expect(capped).toMatchObject({ pairs: 5, capped: true })
   expect(solidCrossings(solid.positions, solid.indices).capped).toBe(false)
 }, 60000)
+
+it('puts the whole wall on one side when asked, keeping the surface as the other face', () => {
+  const { positions, indices } = flat()
+  const up = facingSign(positions, indices, 'up')
+  const n = positions.length / 3
+  const heights = (points: Float32Array) => Array.from({ length: points.length / 3 }, (_, v) => points[v * 3 + 1])
+  for (const [shift, low, high] of [[up, 0, 0.05], [-up, -0.05, 0]] as const) {
+    for (const roundness of [0, 1]) {
+      const solid = thicken(positions, indices, 0.05, roundness, 4, shift)
+      expect(openEdges(solid.indices)).toBe(0)
+      expect(volume(solid.positions, solid.indices)).toBeGreaterThan(0)
+      const ys = heights(solid.positions)
+      expect(Math.min(...ys)).toBeCloseTo(low, 6)
+      expect(Math.max(...ys)).toBeCloseTo(high, 6)
+    }
+    // With a square rim the solid is exactly the sheet's area times the wall, and one face is the sheet itself.
+    const solid = thicken(positions, indices, 0.05, 0, 4, shift)
+    expect(volume(solid.positions, solid.indices)).toBeCloseTo(area(positions, indices) * 0.05, 6)
+    const kept = shift === up ? solid.positions.subarray(n * 3, n * 6) : solid.positions.subarray(0, n * 3)
+    expect(Array.from(kept)).toEqual(Array.from(positions))
+  }
+})
+
+it('tells which way the faces point', () => {
+  // An open cylinder with faces turned outward.
+  const segments = 16, positions: number[] = [], indices: number[] = []
+  for (let i = 0; i < segments; i++) {
+    const angle = 2 * Math.PI * i / segments
+    positions.push(Math.cos(angle), 0, Math.sin(angle), Math.cos(angle), 1, Math.sin(angle))
+  }
+  for (let i = 0; i < segments; i++) {
+    const a0 = i * 2, a1 = a0 + 1, b0 = (i + 1) % segments * 2, b1 = b0 + 1
+    indices.push(a0, a1, b0, b0, a1, b1)
+  }
+  expect(facingSign(positions, indices, 'outward')).toBe(1)
+  const reversed = indices.map((_, i) => indices[i - i % 3 + 2 - i % 3])
+  expect(facingSign(positions, reversed, 'outward')).toBe(-1)
+  // Thickened outside, the cylinder only gets wider.
+  const solid = thicken(positions, indices, 0.1, 0, 4, 1)
+  const radii = Array.from({ length: solid.positions.length / 3 }, (_, v) => Math.hypot(solid.positions[v * 3], solid.positions[v * 3 + 2]))
+  expect(Math.min(...radii)).toBeCloseTo(1, 6)
+  expect(Math.max(...radii)).toBeGreaterThan(1.09)
+  expect(openEdges(solid.indices)).toBe(0)
+})

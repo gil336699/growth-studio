@@ -113,9 +113,14 @@ it('opens projects saved before newer mechanics settings existed', () => {
 it('keeps the print thickness settings, and opens older projects with thickness off', () => {
   const disk = createGrowingDisk()
   const base = { source: null, disk: disk.snapshot(), mechanics: DISK_DEFAULTS, revision: 0, ...settings }
-  const thickness = { on: true, wall: 0.8, rim: 'soft' as const, size: 140, show: false }
+  const thickness = { on: true, wall: 0.8, side: 'inside' as const, rim: 'soft' as const, size: 140, show: false }
   expect(deserializeDiskProject(serializeDiskProject({ ...base, thickness })).thickness).toEqual(thickness)
   expect(deserializeDiskProject(serializeDiskProject(base)).thickness).toEqual(THICKNESS_DEFAULTS)
   expect(() => deserializeDiskProject(serializeDiskProject({ ...base, thickness: { ...thickness, rim: 'chamfer' as never } }))).toThrow('invalid design data')
   expect(() => deserializeDiskProject(serializeDiskProject({ ...base, thickness: { ...thickness, wall: 0 } }))).toThrow('invalid design data')
+  expect(() => deserializeDiskProject(serializeDiskProject({ ...base, thickness: { ...thickness, side: 'middle' as never } }))).toThrow('invalid design data')
+  // Saved by 0.7.0, before the wall could go on one side.
+  const older: Partial<typeof thickness> = { ...thickness }
+  delete older.side
+  expect(deserializeDiskProject(serializeDiskProject({ ...base, thickness: older as never })).thickness).toEqual({ ...thickness, side: 'both' })
 })
