@@ -1,5 +1,15 @@
 # Growth Studio Changelog
 
+## 0.7.0 2026-11-09
+
+- **Add thickness** under File › Export mesh turns the grown sheet into a solid for printing: a wall centered on the surface, closed along every open rim, which exports watertight.
+  - Wall thickness from 0.2 to 5 mm. An STL keeps its own millimeters; the default disk is scaled to a chosen longest side, 100 mm by default.
+  - Rim edge: Round (half-round, like a leaf), Soft (rounded corners), or Square.
+  - The 3D view shows the solid while growth is paused, with the overlay colors carried over.
+  - After each change the app checks, in a background worker, whether the wall passes through itself where folds are close together, and colors those places pink.
+  - The settings are saved with the project. Older projects open with thickness off.
+- Uploaded STLs draw white and shaded. Before, an STL that replaced the default disk drew in flat grey with no light from the lamp, because its material kept the disk's shading.
+
 ## 0.6.1 2026-11-09
 
 - The model is white instead of pale grey-green, in the 3D view and in the variant thumbnails. The view now uses neutral tone mapping, which keeps white white; the default made it light grey. The growth field, growth so far, and contact colors also show slightly closer to their true color.

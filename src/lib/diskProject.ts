@@ -1,6 +1,7 @@
 import type { GrowthStlSource } from '../physics/growthStl'
 import { DISK_DEFAULTS, type DiskSnapshot } from '../physics/growingDisk'
 import { validLayers } from '../physics/growthLayers'
+import { RIM_ROUNDNESS, type RimProfile } from './thicken'
 
 // Kept from Growth Lab so projects saved there still open here.
 const SCHEMA = 'growth-lab/disk-project'
@@ -11,9 +12,12 @@ export type Symmetry = 'off' | 'mirror' | 'radial'
 export type BrushSettings = { radius: number; strength: number; hardness: number; symmetry: Symmetry; copies: number }
 export type Phase = { mode: 'grow' | 'relax'; steps: number }
 export type StopAt = { kind: 'none' | 'size' | 'step' | 'strain'; value: number }
+// Wall for printing, in millimeters. size is the default disk's longest side; an STL keeps its own millimeters.
+export type Thickness = { on: boolean; wall: number; rim: RimProfile; size: number; show: boolean }
 
 export const BRUSH_DEFAULTS: BrushSettings = { radius: 0.15, strength: 1, hardness: 0, symmetry: 'off', copies: 6 }
 export const STOP_DEFAULTS: StopAt = { kind: 'none', value: 2 }
+export const THICKNESS_DEFAULTS: Thickness = { on: false, wall: 1.2, rim: 'round', size: 100, show: true }
 
 type ProjectSource = Omit<GrowthStlSource, 'positions' | 'indices'> & { positions: number[]; indices: number[] }
 export type DiskProject = {
@@ -33,6 +37,7 @@ export type DiskProject = {
   ghost?: boolean
   phases?: Phase[]
   stopAt?: StopAt
+  thickness?: Thickness
   // Version 1 fields, converted on open.
   rimWidth?: number
   brushRadius?: number
@@ -69,6 +74,9 @@ const validBrush = (brush: BrushSettings) => finite(brush.radius, 0.01, 0.6) && 
 const validPhases = (phases: Phase[]) => Array.isArray(phases) && phases.length <= 32
   && phases.every(phase => (phase.mode === 'grow' || phase.mode === 'relax') && count(phase.steps, 100_000) && phase.steps > 0)
 const validStop = (stop: StopAt) => ['none', 'size', 'step', 'strain'].includes(stop.kind) && finite(stop.value, 0, 1e6)
+const validThickness = (thickness: Thickness) => typeof thickness === 'object' && thickness !== null
+  && typeof thickness.on === 'boolean' && finite(thickness.wall, 0.05, 50) && Object.hasOwn(RIM_ROUNDNESS, thickness.rim)
+  && finite(thickness.size, 1, 10_000) && typeof thickness.show === 'boolean'
 
 export function deserializeDiskProject(json: string) {
   const project = JSON.parse(json) as DiskProject & { schema: unknown; version: unknown }
@@ -112,7 +120,8 @@ export function deserializeDiskProject(json: string) {
     || (project.overlay !== undefined && !['field', 'growth', 'contact', 'none'].includes(project.overlay))
     || (project.ghost !== undefined && typeof project.ghost !== 'boolean')
     || (project.phases !== undefined && !validPhases(project.phases))
-    || (project.stopAt !== undefined && !validStop(project.stopAt))) throw invalid()
+    || (project.stopAt !== undefined && !validStop(project.stopAt))
+    || (project.thickness !== undefined && !validThickness(project.thickness))) throw invalid()
   return {
     ...project,
     mechanics,
@@ -122,6 +131,7 @@ export function deserializeDiskProject(json: string) {
     ghost: project.ghost ?? false,
     phases: project.phases ?? [],
     stopAt: project.stopAt ?? STOP_DEFAULTS,
+    thickness: project.thickness ?? THICKNESS_DEFAULTS,
     source: source && { ...source, positions: Float32Array.from(source.positions), indices: Uint32Array.from(source.indices) },
   }
 }

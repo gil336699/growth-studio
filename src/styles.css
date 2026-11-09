@@ -193,6 +193,7 @@ input[type='checkbox']:checked::before { transform: translateX(15px); }
 /* Segmented controls: groups of toggles share one capsule track. */
 .button-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
 h2 + .button-row, .model-card .button-row { margin-top: 0; }
+.button-row.three { grid-template-columns: repeat(3, 1fr); }
 .button-row[role='group'] { gap: 0; padding: 2px; border-radius: 999px; background: var(--well); }
 .button-row[role='group'] button { min-height: 26px; background: transparent; font-weight: 500; }
 .button-row[role='group'] button[aria-pressed='true'] { background: var(--selected); box-shadow: var(--selected-shadow); font-weight: 600; }
@@ -323,6 +324,7 @@ dt[data-tip], .bar-segment > span[data-tip] { cursor: help; text-decoration: und
 .field-key::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: #e63c37; }
 .field-key.key-growth::before { background: #5b4bd6; }
 .field-key.key-contact::before { background: #e0a100; }
+.field-key.key-crossing::before { background: #ff2d95; }
 .timeline { padding: 10px 12px; border-radius: var(--r-panel); pointer-events: auto; }
 .timeline-head { display: flex; align-items: center; gap: 8px; }
 .transport { display: flex; gap: 6px; }

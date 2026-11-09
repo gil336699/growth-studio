@@ -10,6 +10,7 @@ import type { Tool } from '../lib/tools'
 import type { DiskSession } from '../lib/diskSession'
 import type { StrokePoint } from '../physics/growingDisk'
 import type { GrowthLayer, Vec3 } from '../physics/growthLayers'
+import type { Solid } from '../lib/thicken'
 import { buildDiskVoronoi, diskVoronoiLines } from '../physics/diskVoronoi'
 import { type buildSurfaceVoronoi, surfaceVoronoiLines } from '../physics/surfaceVoronoi'
 
@@ -21,6 +22,8 @@ const RENDERER = { toneMapping: NeutralToneMapping }
 const OVERLAY_COLORS: Record<Overlay, Color> = {
   field: new Color('#e63c37'), growth: new Color('#5b4bd6'), contact: new Color('#e0a100'), none: NEUTRAL,
 }
+// Where a thickened wall crosses itself.
+const CROSSING = new Color('#ff2d95')
 
 // Nearest vertex of the starting shape, so markers placed in rest space follow the grown surface.
 function nearestRest(rest: ArrayLike<number>, point: Vec3) {
@@ -36,12 +39,14 @@ type SheetProps = {
   disk: Disk; tick: number; view: DiskView; overlay: Overlay; ghost: boolean; imported: boolean; running: boolean
   tool: Tool; canEdit: boolean; brush: BrushSettings; rimEdges?: number[]
   layers: GrowthLayer[]; selectedLayerId: string | null
+  // The printable solid to show instead of the sheet, and its vertices where the wall crosses itself.
+  solid?: Solid | null; crossings?: number[] | null
   onStroke: (points: StrokePoint[], pressure: number, first: boolean) => void
   onPlace: (point: Vec3) => void
 }
 
 function Sheet(props: SheetProps) {
-  const { disk, tick, view, overlay, ghost, imported, running, tool, canEdit, brush, rimEdges, layers, selectedLayerId } = props
+  const { disk, tick, view, overlay, ghost, imported, running, tool, canEdit, brush, rimEdges, layers, selectedLayerId, solid, crossings } = props
   const geometryRevision = disk.geometryRevision
   const { indices, uv, positions } = disk
   const geometry = useMemo(() => {
@@ -77,6 +82,27 @@ function Sheet(props: SheetProps) {
     color.needsUpdate = true
   }, [geometry, overlay, disk, tick, disk.fieldRevision])
   useEffect(() => () => geometry.dispose(), [geometry])
+
+  // The solid carries the sheet's overlay colors from the vertex each of its vertices came from.
+  const solidGeometry = useMemo(() => {
+    if (!solid) return null
+    const mesh = new BufferGeometry()
+    mesh.setAttribute('position', new BufferAttribute(solid.positions, 3))
+    mesh.setIndex(new BufferAttribute(solid.indices, 1))
+    mesh.setAttribute('color', new BufferAttribute(new Float32Array(solid.positions.length), 3))
+    if (!imported) mesh.computeVertexNormals()
+    return mesh
+  }, [solid, imported])
+  useLayoutEffect(() => {
+    if (!solid || !solidGeometry) return
+    const from = (geometry.getAttribute('color') as BufferAttribute).array as Float32Array
+    const color = solidGeometry.getAttribute('color') as BufferAttribute
+    const rgb = color.array as Float32Array
+    for (let v = 0; v < solid.origin.length; v++) rgb.set(from.subarray(solid.origin[v] * 3, solid.origin[v] * 3 + 3), v * 3)
+    for (const v of crossings ?? []) CROSSING.toArray(rgb, v * 3)
+    color.needsUpdate = true
+  }, [solid, solidGeometry, geometry, crossings, overlay, tick, disk.fieldRevision])
+  useEffect(() => () => solidGeometry?.dispose(), [solidGeometry])
 
   const ghostGeometry = useMemo(() => {
     if (!ghost) return null
@@ -200,9 +226,14 @@ function Sheet(props: SheetProps) {
       onPointerMove={event => handleMove(event)}
       onPointerUp={() => { stroke.current = false }}
       onPointerOut={() => setHover(null)}>
-      <meshStandardMaterial vertexColors flatShading={imported} side={DoubleSide} roughness={0.85} polygonOffset polygonOffsetFactor={2} />
+      {/* Hidden under the solid, but still the surface that brushes and point placement hit. A new material when
+          the shading changes: three.js only rebuilds a shader for flat shading when the material is new, and an
+          STL that replaced the disk otherwise drew without light from the lamp, in flat grey. */}
+      <meshStandardMaterial key={imported ? 'flat' : 'smooth'} vertexColors flatShading={imported} side={DoubleSide} roughness={0.85}
+        polygonOffset polygonOffsetFactor={2} visible={!solidGeometry} />
     </mesh>
-    {view === 'triangles'
+    {solidGeometry && <mesh geometry={solidGeometry}><meshStandardMaterial key={imported ? 'flat' : 'smooth'} vertexColors flatShading={imported} roughness={0.85} /></mesh>}
+    {solidGeometry ? null : view === 'triangles'
       ? <mesh geometry={geometry}><meshBasicMaterial color="#294557" wireframe /></mesh>
       : view !== 'smooth' && <lineSegments geometry={cellLines}><lineBasicMaterial vertexColors /></lineSegments>}
     {ghostGeometry && <mesh geometry={ghostGeometry} renderOrder={1}>

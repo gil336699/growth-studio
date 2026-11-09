@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { Vector3 } from 'three'
 import { LayersPanel } from './components/LayersPanel'
 import { Icon } from './components/Icon'
@@ -14,14 +14,15 @@ import { useMediaQuery } from './lib/useMediaQuery'
 import { createDiskSession, type DiskSession } from './lib/diskSession'
 import type { PlayConfig, Snap } from './lib/playback'
 import {
-  BRUSH_DEFAULTS, deserializeDiskProject, serializeDiskProject, STOP_DEFAULTS,
-  type BrushSettings, type DiskView, type Overlay, type Phase, type StopAt,
+  BRUSH_DEFAULTS, deserializeDiskProject, serializeDiskProject, STOP_DEFAULTS, THICKNESS_DEFAULTS,
+  type BrushSettings, type DiskView, type Overlay, type Phase, type StopAt, type Thickness,
 } from './lib/diskProject'
 import { formSize, rimWaves } from './lib/formReadouts'
 import { exportBinaryStl, exportObj } from './lib/meshExport'
 import { PRESETS } from './lib/presets'
 import { rangeFill } from './lib/rangeFill'
 import { saveFile, type SaveResult } from './lib/saveFile'
+import { printScale, RIM_ROUNDNESS, thicken, type RimProfile, type Solid } from './lib/thicken'
 import { createGrowingDisk, DISK_DEFAULTS, diskGravityDirection, type BrushMode, type DiskSnapshot, type StrokePoint } from './physics/growingDisk'
 import type { GrowthLayer, Vec3 } from './physics/growthLayers'
 import { growthExportPositions, readGrowthStl, type GrowthStlSource } from './physics/growthStl'
@@ -29,6 +30,13 @@ import { MAX_TRIANGLES, SLOW_TRIANGLES, stlTriangleCount } from './lib/stl'
 
 type Mechanics = typeof DISK_DEFAULTS
 const MAX_SNAPSHOTS = 80
+// A surface that already crosses itself can cross in millions of places once thickened, so counting stops here.
+const CROSSING_LIMIT = 1000
+const RIM_PROFILES: [RimProfile, string, string][] = [
+  ['round', 'Round', 'A half-round edge, like a leaf or petal.'],
+  ['soft', 'Soft', 'A flat edge with rounded corners.'],
+  ['square', 'Square', 'A flat edge cut straight across the wall.'],
+]
 const percent = (value: number, digits = 0) => `${(value * 100).toFixed(digits)}%`
 // Keep the newest snapshots; thin out older ones when the list is full.
 const keepSnapshots = (snaps: Snap[]) => snaps.length <= MAX_SNAPSHOTS ? snaps
@@ -77,6 +85,7 @@ export function App() {
   const [projectStatus, setProjectStatus] = useState('')
   const [projectError, setProjectError] = useState('')
   const [exportStatus, setExportStatus] = useState('')
+  const [thickness, setThickness] = useState<Thickness>(THICKNESS_DEFAULTS)
   const [speed, setSpeed] = useState(3)
   const [batch, setBatch] = useState(100)
   const [importSpeed, setImportSpeed] = useState(1)
@@ -120,6 +129,33 @@ export function App() {
   const active = running || manualQueue > 0 || disk.busy
   const canSimulate = !loading && !disk.initialOverlap && disk.canGrow
   const selectedLayer = layers.find(layer => layer.id === selectedLayerId) ?? layers[0]
+
+  // Thickness for printing: a wall on both sides of the surface, closed along the open rims.
+  // The 3D view shows the solid while growth is paused, and Export writes it.
+  const canThicken = rims.length > 0
+  const solidOn = thickness.on && canThicken
+  const mmPerUnit = printScale(disk.positions, input?.scale ?? null, thickness.size)
+  // Deferred, so dragging the wall slider stays smooth on a dense mesh.
+  const wall = useDeferredValue(thickness.wall), rimProfile = useDeferredValue(thickness.rim)
+  const solid = useMemo(() => solidOn && !active ? thicken(disk.positions, disk.indices, wall / mmPerUnit, RIM_ROUNDNESS[rimProfile]) : null,
+  // Positions change in place; the geometry revision tracks them.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [solidOn, active, disk, disk.indices, disk.geometryRevision, wall, rimProfile, mmPerUnit])
+  // Where the wall crosses itself, found in a worker since a dense mesh takes seconds.
+  const [solidCheck, setSolidCheck] = useState<{ solid: Solid; pairs: number; capped: boolean; vertices: number[] } | null>(null)
+  useEffect(() => {
+    if (!solid) return
+    const worker = new Worker(new URL('./lib/solidCheck.worker.ts', import.meta.url), { type: 'module' })
+    worker.onmessage = ({ data }: MessageEvent<{ pairs: number; capped: boolean; vertices: number[] }>) => {
+      setSolidCheck({ solid, ...data })
+      worker.terminate()
+    }
+    const timer = window.setTimeout(() => worker.postMessage({ positions: solid.positions, indices: solid.indices, limit: CROSSING_LIMIT }), 200)
+    return () => { window.clearTimeout(timer); worker.terminate() }
+  }, [solid])
+  const crossings = solidCheck?.solid === solid ? solidCheck : null
+  const crossingCount = crossings ? `${crossings.capped ? 'more than ' : ''}${crossings.pairs.toLocaleString()} ${crossings.pairs === 1 ? 'place' : 'places'}` : ''
+  const showSolid = Boolean(solid && thickness.show)
 
   const applyLayers = useCallback((next: GrowthLayer[], target = disk) => {
     target.setLayers(next)
@@ -217,11 +253,17 @@ export function App() {
     : result === 'downloaded' ? `Download requested for ${filename}. If no file appears, open Growth Studio in Chrome or Safari.`
       : result === 'cancelled' ? 'Save cancelled.' : `Could not save ${filename}.`
   const exportMesh = async (format: 'obj' | 'stl') => {
-    const positions = input ? growthExportPositions(disk.positions, input, centerExport) : disk.positions
-    const data = format === 'obj' ? exportObj(positions, disk.indices, snapshotName) : exportBinaryStl(positions, disk.indices, snapshotName)
-    const filename = `${snapshotName}.${format}`
+    const made = solidOn ? thicken(disk.positions, disk.indices, thickness.wall / mmPerUnit, RIM_ROUNDNESS[thickness.rim]) : null
+    const surface = made?.positions ?? disk.positions, indices = made?.indices ?? disk.indices
+    // A solid is written in millimeters: the STL's own, or the default disk at its chosen size.
+    const positions = input ? growthExportPositions(surface, input, centerExport) : made ? surface.map(value => value * mmPerUnit) : surface
+    const name = made ? `${snapshotName}-solid` : snapshotName
+    const data = format === 'obj' ? exportObj(positions, indices, name) : exportBinaryStl(positions, indices, name)
+    const filename = `${name}.${format}`
     const result = await saveFile(filename, data, format === 'obj' ? 'text/plain' : 'model/stl', format === 'obj' ? 'OBJ mesh' : 'STL mesh')
-    setExportStatus(describe(result, filename))
+    const written = result === 'saved' || result === 'downloaded'
+    setExportStatus(describe(result, filename) + (made && written
+      ? ` Solid with a ${thickness.wall} mm wall, ${(indices.length / 3).toLocaleString()} triangles${input ? '' : `, ${thickness.size} mm on its longest side`}.` : ''))
   }
   // Resolves true once the project is written or handed to the browser as a download.
   const saveProject = async () => {
@@ -229,7 +271,7 @@ export function App() {
     const { snapshot } = await disk.requestSnap()
     const json = serializeDiskProject({
       source, disk: snapshot, mechanics, revision: step, centerExport, relaxing, view,
-      speed, batch, importSpeed, importBatch, brush, overlay, ghost, phases, stopAt,
+      speed, batch, importSpeed, importBatch, brush, overlay, ghost, phases, stopAt, thickness,
     })
     const filename = `${snapshotName}.growthstudio.json`
     const saved = { step, edits }
@@ -265,6 +307,7 @@ export function App() {
       setGhost(project.ghost)
       setPhases(project.phases)
       setStopAt(project.stopAt)
+      setThickness(project.thickness)
       setTool('orbit')
       setImportError('')
       setExportStatus('')
@@ -482,7 +525,8 @@ export function App() {
     <div className="stage">
       <Viewport disk={disk} tick={tick} view={view} overlay={overlay} ghost={ghost} imported={Boolean(input)} running={running}
         tool={tool} canEdit={!loading} brush={brush} rimEdges={rimEdges} layers={layers} selectedLayerId={selectedLayer?.id ?? null}
-        onStroke={onStroke} onPlace={onPlace} gravityArrow={gravityArrow} cameraKey={cameraKey} />
+        onStroke={onStroke} onPlace={onPlace} gravityArrow={gravityArrow} cameraKey={cameraKey}
+        solid={showSolid ? solid : null} crossings={showSolid ? crossings?.vertices ?? null : null} />
     </div>
 
     <header className="brand glass">
@@ -616,6 +660,8 @@ export function App() {
           {overlay !== 'none' && <span className={`field-key key-${overlay}`}>
             {overlay === 'field' ? 'Growth field' : overlay === 'growth' ? 'Growth so far' : 'Recent contact'}
           </span>}
+          {showSolid && <span data-tip="The solid that Export writes. Turn it off under File › Export mesh.">Solid · {thickness.wall} mm wall</span>}
+          {showSolid && crossings && crossings.pairs > 0 && <span className="field-key key-crossing">Wall crosses itself</span>}
         </div>
         <Timeline marks={snapshots.map(s => s.mark)} viewing={viewing} step={step} strain={disk.strain} every={every} active={active}
           phases={phases} phaseIndex={phaseIndex} onScrub={index => void scrub(index)} onSnapshot={() => void takeSnapshot()} onEvery={setEvery}
@@ -695,12 +741,35 @@ export function App() {
             <p className="hint">{input.sourceCenter ? 'Exports keep the STL coordinates unless you center the mesh.'
               : 'This project predates coordinate preservation. Reimport the original STL to use its coordinates.'}</p>
           </>}
+          <label data-tip="Give the sheet a wall on both sides and close its open rims, so Export writes a solid ready for slicing."><span>Add thickness <input type="checkbox" checked={thickness.on}
+            onChange={event => { const on = event.currentTarget.checked; setThickness(current => ({ ...current, on })); setExportStatus(''); touch() }} /></span></label>
+          {thickness.on && !canThicken && <p className="hint">This surface has no open rims, so it is already closed. It exports as it is.</p>}
+          {solidOn && <>
+            <Slider label="Wall thickness" value={thickness.wall} display={`${thickness.wall.toFixed(1)} mm`} min={0.2} max={5} step={0.1}
+              title={`Total wall, centered on the surface${input ? ", in the STL's millimeters" : ''}. Most filament printers need at least 0.8 mm, resin printers about 0.5 mm.`}
+              onChange={value => { setThickness(current => ({ ...current, wall: value })); touch() }} />
+            <div className="button-row three" role="group" aria-label="Rim edge">
+              {RIM_PROFILES.map(([rim, label, tip]) => <button key={rim} type="button" aria-pressed={thickness.rim === rim} data-tip={tip}
+                onClick={() => { setThickness(current => ({ ...current, rim })); touch() }}>{label}</button>)}
+            </div>
+            {!input && <label data-tip="The default disk has no units. Export scales the solid so its longest side is this long.">Longest side (mm)
+              <input className="number-input" type="number" min="10" max="1000" step="5" value={thickness.size}
+                onChange={event => { const size = Math.min(1000, Math.max(10, Number(event.currentTarget.value) || 100)); setThickness(current => ({ ...current, size })); touch() }} /></label>}
+            <label data-tip="Show the solid in the 3D view while growth is paused. Growth itself always uses the thin sheet."><span>Show in 3D view <input type="checkbox" checked={thickness.show}
+              onChange={event => { const show = event.currentTarget.checked; setThickness(current => ({ ...current, show })) }} /></span></label>
+            <p className="hint" role="status">{active ? 'The wall is checked when growth pauses.'
+              : !crossings ? 'Checking the wall…'
+                : crossings.pairs ? (disk.initialOverlap || disk.ignoringOverlaps
+                  ? `The surface already crosses itself, so the wall does too, in ${crossingCount}${thickness.show ? ', shown in pink' : ''}. Combine the bodies in your CAD tool before printing.`
+                  : `The wall crosses itself in ${crossingCount}${thickness.show ? ', shown in pink' : ''}, where folds are closer together than the wall is thick. Most slicers merge these. For a clean solid, use a thinner wall, or grow with a larger Repel distance.`)
+                  : `Closed solid with no crossings, ${(solid!.indices.length / 3).toLocaleString()} triangles.`}</p>
+          </>}
           <div className="button-row">
-            <button disabled={active} data-tip={active ? 'Stop the simulation to export.' : 'Save the current surface as an OBJ mesh.'} onClick={() => void exportMesh('obj')}>Export OBJ</button>
-            <button disabled={active} data-tip={active ? 'Stop the simulation to export.' : 'Save the current surface as a binary STL for CAD or slicing. It is an open sheet, so add thickness before printing.'}
+            <button disabled={active} data-tip={active ? 'Stop the simulation to export.' : solidOn ? 'Save the solid as an OBJ mesh, in millimeters.' : 'Save the current surface as an OBJ mesh.'} onClick={() => void exportMesh('obj')}>Export OBJ</button>
+            <button disabled={active} data-tip={active ? 'Stop the simulation to export.' : solidOn ? 'Save the solid as a binary STL for slicing, in millimeters.' : 'Save the current surface as a binary STL for CAD or slicing. It is an open sheet, so add thickness before printing.'}
               onClick={() => void exportMesh('stl')}>Export STL</button>
           </div>
-          <p className="hint" role="status">{exportStatus || 'The surface is an open sheet and may need thickness before printing.'}</p>
+          <p className="hint" role="status">{exportStatus || (solidOn ? 'Exports the solid.' : canThicken ? 'The surface is an open sheet. Add thickness to print it.' : 'The surface is closed and exports as it is.')}</p>
         </section>
       </TabPanel>
     </aside>

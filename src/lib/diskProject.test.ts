@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest'
 import { createGrowingDisk, DISK_DEFAULTS } from '../physics/growingDisk'
 import { createLayer } from '../physics/growthLayers'
-import { deserializeDiskProject, serializeDiskProject, type DiskProject } from './diskProject'
+import { deserializeDiskProject, serializeDiskProject, THICKNESS_DEFAULTS, type DiskProject } from './diskProject'
 
 const settings = { relaxing: false, view: 'triangles' as const, speed: 3, batch: 100, importSpeed: 1, importBatch: 10 }
 const sheet = () => ({
@@ -108,4 +108,14 @@ it('opens projects saved before newer mechanics settings existed', () => {
   legacy.disk.growthThrottle = 0.5
   legacy.mechanics.repelStrength = 5
   expect(() => deserializeDiskProject(JSON.stringify(legacy))).toThrow('invalid design data')
+})
+
+it('keeps the print thickness settings, and opens older projects with thickness off', () => {
+  const disk = createGrowingDisk()
+  const base = { source: null, disk: disk.snapshot(), mechanics: DISK_DEFAULTS, revision: 0, ...settings }
+  const thickness = { on: true, wall: 0.8, rim: 'soft' as const, size: 140, show: false }
+  expect(deserializeDiskProject(serializeDiskProject({ ...base, thickness })).thickness).toEqual(thickness)
+  expect(deserializeDiskProject(serializeDiskProject(base)).thickness).toEqual(THICKNESS_DEFAULTS)
+  expect(() => deserializeDiskProject(serializeDiskProject({ ...base, thickness: { ...thickness, rim: 'chamfer' as never } }))).toThrow('invalid design data')
+  expect(() => deserializeDiskProject(serializeDiskProject({ ...base, thickness: { ...thickness, wall: 0 } }))).toThrow('invalid design data')
 })

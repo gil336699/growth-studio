@@ -1,0 +1,125 @@
+import { describe, expect, it } from 'vitest'
+import { createGrowingDisk } from '../physics/growingDisk'
+import { printScale, RIM_ROUNDNESS, rimProfile, solidCrossings, thicken, type RimProfile } from './thicken'
+
+// Every edge used by exactly two faces, once in each direction: closed, with faces turned consistently.
+function openEdges(indices: Uint32Array) {
+  const directed = new Map<string, number>()
+  for (let i = 0; i < indices.length; i += 3) {
+    for (let k = 0; k < 3; k++) {
+      const key = `${indices[i + k]}:${indices[i + (k + 1) % 3]}`
+      directed.set(key, (directed.get(key) ?? 0) + 1)
+    }
+  }
+  let bad = 0
+  for (const [key, count] of directed) {
+    const [a, b] = key.split(':')
+    if (count !== 1 || directed.get(`${b}:${a}`) !== 1) bad++
+  }
+  return bad
+}
+// Positive when the faces point outward.
+function volume(positions: Float32Array, indices: Uint32Array) {
+  let sum = 0
+  for (let i = 0; i < indices.length; i += 3) {
+    const [a, b, c] = [indices[i], indices[i + 1], indices[i + 2]].map(v => [positions[v * 3], positions[v * 3 + 1], positions[v * 3 + 2]])
+    sum += a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0])
+  }
+  return sum / 6
+}
+function area(positions: Float32Array, indices: Uint32Array) {
+  let sum = 0
+  for (let i = 0; i < indices.length; i += 3) {
+    const [a, b, c] = [indices[i], indices[i + 1], indices[i + 2]].map(v => [positions[v * 3], positions[v * 3 + 1], positions[v * 3 + 2]])
+    const u = b.map((value, k) => value - a[k]), w = c.map((value, k) => value - a[k])
+    sum += Math.hypot(u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]) / 2
+  }
+  return sum
+}
+// The starting disk with its small ripple removed, so it is exactly flat.
+const flat = () => {
+  const disk = createGrowingDisk()
+  const positions = disk.positions.slice()
+  for (let v = 0; v < positions.length / 3; v++) positions[v * 3 + 1] = 0
+  return { positions, indices: disk.indices.slice() }
+}
+
+describe('thicken', () => {
+  it('traces each rim profile from the top face to the bottom face', () => {
+    for (const roundness of [0, 0.5, 1]) {
+      const points = rimProfile(0.5, roundness)
+      expect(points[0][0]).toBeCloseTo(0)
+      expect(points[0][1]).toBeCloseTo(0.5)
+      expect(points.at(-1)![0]).toBeCloseTo(0)
+      expect(points.at(-1)![1]).toBeCloseTo(-0.5)
+      expect(Math.max(...points.map(([u]) => u))).toBeCloseTo(0.5 * roundness)
+    }
+    // A half-circle has no repeated middle point.
+    expect(rimProfile(0.5, 1, 4)).toHaveLength(9)
+  })
+
+  it('closes a flat disk into a watertight solid for every rim profile', () => {
+    const { positions, indices } = flat()
+    for (const profile of Object.keys(RIM_ROUNDNESS) as RimProfile[]) {
+      const solid = thicken(positions, indices, 0.05, RIM_ROUNDNESS[profile])
+      expect(openEdges(solid.indices)).toBe(0)
+      expect(volume(solid.positions, solid.indices)).toBeGreaterThan(0)
+      expect(solid.rimEdges).toBeGreaterThan(20)
+      expect(solidCrossings(solid.positions, solid.indices).pairs).toBe(0)
+    }
+  })
+
+  it('gives a flat sheet with a square rim exactly its area times the thickness', () => {
+    const { positions, indices } = flat()
+    const solid = thicken(positions, indices, 0.05, 0)
+    expect(volume(solid.positions, solid.indices)).toBeCloseTo(area(positions, indices) * 0.05, 6)
+    const ys = Array.from({ length: solid.positions.length / 3 }, (_, v) => solid.positions[v * 3 + 1])
+    expect(Math.max(...ys) - Math.min(...ys)).toBeCloseTo(0.05, 6)
+  })
+
+  it('rounds the rim outward by half the thickness', () => {
+    const { positions, indices } = flat()
+    const reach = (points: Float32Array) => Math.max(...Array.from({ length: points.length / 3 }, (_, v) => Math.hypot(points[v * 3], points[v * 3 + 2])))
+    const solid = thicken(positions, indices, 0.06, 1)
+    expect(reach(solid.positions) - reach(positions)).toBeCloseTo(0.03, 3)
+    // Every solid vertex remembers the surface vertex it came from.
+    expect(Math.max(...solid.origin)).toBe(positions.length / 3 - 1)
+  })
+
+  it('thickens a grown, folded disk without leaks, and finds the wall crossing where it is too thick', () => {
+    const disk = createGrowingDisk()
+    for (let i = 0; i < 400; i++) disk.step(true)
+    const thin = thicken(disk.positions, disk.indices, 0.01, 1)
+    expect(openEdges(thin.indices)).toBe(0)
+    expect(solidCrossings(thin.positions, thin.indices).pairs).toBe(0)
+    // Far thicker than the folds are wide, so the wall must cross itself somewhere.
+    const thick = thicken(disk.positions, disk.indices, 0.6, 1)
+    const crossings = solidCrossings(thick.positions, thick.indices)
+    expect(crossings.pairs).toBeGreaterThan(0)
+    expect(crossings.vertices.every(v => v < thick.origin.length)).toBe(true)
+  }, 60000)
+
+  it('leaves a closed surface without rim edges', () => {
+    // A tetrahedron with outward faces.
+    const positions = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1])
+    const indices = new Uint32Array([0, 2, 1, 0, 1, 3, 0, 3, 2, 1, 2, 3])
+    const solid = thicken(positions, indices, 0.05, 1)
+    expect(solid.rimEdges).toBe(0)
+    expect(openEdges(solid.indices)).toBe(0)
+  })
+
+  it('prints an STL in its own millimeters and scales the disk to the chosen longest side', () => {
+    const positions = new Float32Array([-1, 0, -0.5, 1, 0.2, 0.5])
+    expect(printScale(positions, 12.5, 100)).toBe(12.5)
+    expect(printScale(positions, null, 100)).toBeCloseTo(50)
+  })
+})
+
+it('stops counting crossings at the limit', () => {
+  const disk = createGrowingDisk()
+  for (let i = 0; i < 300; i++) disk.step(true)
+  const solid = thicken(disk.positions, disk.indices, 0.6, 1)
+  const capped = solidCrossings(solid.positions, solid.indices, 5)
+  expect(capped).toMatchObject({ pairs: 5, capped: true })
+  expect(solidCrossings(solid.positions, solid.indices).capped).toBe(false)
+}, 60000)

@@ -1,6 +1,6 @@
 # Growth Studio
 
-Growth Studio is a browser app for differential growth. Start from a flat disk or an open STL such as a Fusion vase base, decide where and when it grows, and watch the rim ruffle and fold. Save editable projects and export OBJ or STL back to CAD.
+Growth Studio is a browser app for differential growth. Start from a flat disk or an open STL such as a Fusion vase base, decide where and when it grows, and watch the rim ruffle and fold. Save editable projects, and export OBJ or STL back to CAD, or as a solid with walls and rounded rims, ready to print.
 
 **Use it online:** https://gil336699.github.io/growth-studio/
 
@@ -52,7 +52,8 @@ On tablets the 3D view sits on top, with both panels below it. On phones everyth
 3. **Brush.** Pick Paint, Erase, or Smooth above the 3D view and brush growth onto the model, even while it grows.
 4. **Grow.** Press **Play growth** in the timeline dock, step in batches, or run a recipe of phases. **Relax only** lets the form settle without adding growth.
 5. **Look back.** Scrub the timeline to any snapshot and continue from there.
-6. **Save and export.** **Save project** writes an editable `.growthstudio.json` file. **Export OBJ** or **Export STL** writes the current surface in the STL's original coordinates, unless **Center exported mesh** is checked. The surface is an open sheet and may need thickness before printing.
+6. **Save and export.** **Save project** writes an editable `.growthstudio.json` file. **Export OBJ** or **Export STL** writes the current surface in the STL's original coordinates, unless **Center exported mesh** is checked.
+7. **Make it printable.** The surface is an open sheet. Turn on **Add thickness** under **File › Export mesh** to export a solid instead (see [Thickness for printing](#thickness-for-printing)).
 
 The app asks before Reset, Upload STL, Default disk, or Open project would discard unsaved work. Growth Lab disk projects also open.
 
@@ -70,6 +71,19 @@ Where layers overlap, the strongest one wins. Erase and noise apply on top.
 | Noise | Organic variation applied to the other layers, with a pattern size and seed. |
 
 Every layer can start and stop at timeline steps, and intensity keyframes ramp it up or down over time.
+
+## Thickness for printing
+
+**Add thickness** gives the sheet a wall centered on the surface and closes every open rim, so Export writes a watertight solid that slicers accept. Growth always runs on the thin sheet; thickness is applied to the view and to the export only, and is saved with the project.
+
+| Setting | Effect |
+| --- | --- |
+| Wall thickness | The total wall, 0.2 to 5 mm. Most filament printers need at least 0.8 mm, and resin printers about 0.5 mm. |
+| Rim edge | **Round** closes each rim with a half-round edge, like a leaf or petal. **Soft** is a flat edge with rounded corners, and **Square** cuts straight across the wall. |
+| Longest side | The default disk has no units, so its solid is scaled to this length in millimeters. An uploaded STL keeps its own millimeters. |
+| Show in 3D view | Shows the solid while growth is paused. |
+
+Every fold of the grown surface is kept: the wall is offset along the surface, not rebuilt. Where folds come closer together than the wall is thick, the wall passes through itself. The app checks for this after each change and colors those places pink. Most slicers merge them; for a clean solid, use a thinner wall, or grow with a larger **Repel distance** so folds stay further apart. A surface with no open rims is already closed and exports as it is.
 
 ## Controls
 
@@ -118,7 +132,8 @@ This is a position-based design model. It is not a validated thin-shell or biolo
 - Stop takes effect after the step in progress, which on a dense mesh can take a few hundred milliseconds. The status reads Stopping… until then.
 - Opening a very large STL still pauses the page while the surface is prepared, about 6 seconds for 181,000 triangles.
 - Very dense growth, such as compounding beyond about 15 times the original size, blocks more steps and slows to a few steps per second.
-- STL files carry no units. Dimensions are reported as millimeters.
+- STL files carry no units. Dimensions, and the wall of a thickened STL, are in millimeters.
+- Thickness is centered on the surface; it cannot yet be put all on one side, or varied across the model.
 - Browsers may slow work in hidden tabs, so growth can slow down while the tab is hidden. The view catches up when you return.
 
 ## Development
@@ -133,7 +148,7 @@ npm run build
 - `src/lib/diskSession.ts`: the page's handle on the model. The model moves into `src/physics/simulation.worker.ts` on the first Play, and the page keeps a mirror for the view
 - `src/components/`: the viewport, layers, timeline, and variant panels
 - `src/physics/`: the growing surface, growth layers, contact, bending, remeshing, and Voronoi views
-- `src/lib/`: STL import, project files, export, presets, readouts, and symmetry
+- `src/lib/`: STL import, project files, export, thickness for printing (`thicken.ts`), presets, readouts, and symmetry
 
 Growth Studio was split out of Growth Lab at commit `2837c65`.
 
