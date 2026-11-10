@@ -55,12 +55,20 @@ type SheetProps = {
   layers: GrowthLayer[]; selectedLayerId: string | null
   // The printable solid to show instead of the sheet, and its vertices where the wall crosses itself.
   solid?: Solid | null; crossings?: number[] | null
+  // Smooth shading for a brain-mode shape, which an imported STL otherwise doesn't get.
+  smooth?: boolean
+  // While growing, a closed shape's outer layer is previewed by pushing the sheet out this far along its normals.
+  offset?: number
   onStroke: (points: StrokePoint[], pressure: number, first: boolean) => void
   onPlace: (point: Vec3) => void
 }
 
 function Sheet(props: SheetProps) {
   const { disk, tick, view, overlay, ghost, imported, running, tool, canEdit, brush, rimEdges, layers, selectedLayerId, solid, crossings } = props
+  const smooth = Boolean(props.smooth), offset = props.offset ?? 0
+  // An STL is drawn flat-shaded, facets and all, unless it's a brain-mode shape or the layer preview needs normals.
+  const normals = !imported || smooth || offset > 0
+  const flat = imported && !smooth
   const geometryRevision = disk.geometryRevision
   const { indices, uv, positions } = disk
   const geometry = useMemo(() => {
@@ -69,18 +77,24 @@ function Sheet(props: SheetProps) {
     mesh.setIndex(new BufferAttribute(indices, 1))
     mesh.setAttribute('uv', new BufferAttribute(uv, 2))
     mesh.setAttribute('color', new BufferAttribute(new Float32Array(positions.length), 3))
-    if (!imported) mesh.computeVertexNormals()
+    if (normals) mesh.computeVertexNormals()
     return mesh
-  }, [positions, indices, uv, imported])
+  }, [positions, indices, uv, normals])
   // Layout effects run before the next frame is drawn. A new mesh starts with black vertex colors, so
   // filling them in a later effect let a frame show the model black each time growth added triangles.
   useLayoutEffect(() => {
     const position = geometry.getAttribute('position') as BufferAttribute
-    position.array.set(positions)
+    const shown = position.array as Float32Array
+    shown.set(positions)
+    if (normals) geometry.computeVertexNormals()
+    if (offset > 0) {
+      // Pushed out along the normals of the grown sheet, so the lighting stays that of the sheet.
+      const normal = (geometry.getAttribute('normal') as BufferAttribute).array as Float32Array
+      for (let i = 0; i < shown.length; i++) shown[i] += offset * normal[i]
+    }
     position.needsUpdate = true
-    if (!imported) geometry.computeVertexNormals()
     geometry.computeBoundingSphere()
-  }, [positions, geometry, geometryRevision, imported])
+  }, [positions, geometry, geometryRevision, normals, offset])
   // Vertex colors show the chosen overlay: growth field, growth so far, or recent contact.
   useLayoutEffect(() => {
     const color = geometry.getAttribute('color') as BufferAttribute
@@ -104,7 +118,7 @@ function Sheet(props: SheetProps) {
     mesh.setAttribute('position', new BufferAttribute(solid.positions, 3))
     mesh.setIndex(new BufferAttribute(solid.indices, 1))
     mesh.setAttribute('color', new BufferAttribute(new Float32Array(solid.positions.length), 3))
-    if (!imported) mesh.computeVertexNormals()
+    if (!imported || solid.smooth) mesh.computeVertexNormals()
     return mesh
   }, [solid, imported])
   useLayoutEffect(() => {
@@ -243,10 +257,11 @@ function Sheet(props: SheetProps) {
       {/* Hidden under the solid, but still the surface that brushes and point placement hit. A new material when
           the shading changes: three.js only rebuilds a shader for flat shading when the material is new, and an
           STL that replaced the disk otherwise drew without light from the lamp, in flat grey. */}
-      <meshStandardMaterial key={imported ? 'flat' : 'smooth'} vertexColors flatShading={imported} side={DoubleSide} roughness={0.85}
+      <meshStandardMaterial key={flat ? 'flat' : 'smooth'} vertexColors flatShading={flat} side={DoubleSide} roughness={0.85}
         polygonOffset polygonOffsetFactor={2} visible={!solidGeometry} />
     </mesh>
-    {solidGeometry && <mesh geometry={solidGeometry}><meshStandardMaterial key={imported ? 'flat' : 'smooth'} vertexColors flatShading={imported} roughness={0.85} /></mesh>}
+    {solidGeometry && <mesh geometry={solidGeometry}><meshStandardMaterial key={imported && !solid?.smooth ? 'flat' : 'smooth'} vertexColors
+      flatShading={imported && !solid?.smooth} roughness={0.85} /></mesh>}
     {solidGeometry ? null : view === 'triangles'
       ? <mesh geometry={geometry}><meshBasicMaterial color="#294557" wireframe /></mesh>
       : view !== 'smooth' && <lineSegments geometry={cellLines}><lineBasicMaterial vertexColors /></lineSegments>}

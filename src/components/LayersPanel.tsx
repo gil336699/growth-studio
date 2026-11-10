@@ -33,12 +33,13 @@ function layerSummary(layer: GrowthLayer, rims: Rim[]) {
   else if (layer.kind === 'line') parts.push(layer.points.length ? `${percent(layer.radius)} wide` : 'Not drawn yet')
   else if (layer.kind === 'height') parts.push(`${percent(layer.low)} to ${percent(layer.high)} of height`)
   else if (layer.kind === 'noise') parts.push(`Pattern ${layer.scale.toFixed(2)}`)
+  else if (layer.kind === 'surface') parts.push('Everywhere')
   else parts.push('Brush strokes')
   if (layer.timing.start) parts.push(`from step ${layer.timing.start}`)
   if (layer.timing.end !== null) parts.push(`until step ${layer.timing.end}`)
   return parts.join(' · ')
 }
-const ADDABLE: LayerKind[] = ['rim', 'point', 'line', 'height', 'noise']
+const ADDABLE: LayerKind[] = ['rim', 'surface', 'point', 'line', 'height', 'noise']
 // What each kind of layer does, shown on hover.
 const LAYER_TIPS: Record<LayerKind, string> = {
   rim: 'Grows inward from an open rim, like a lettuce leaf edge. Lobes grow from spots around the rim instead.',
@@ -47,6 +48,7 @@ const LAYER_TIPS: Record<LayerKind, string> = {
   line: 'A band of growth along a line you draw on the model.',
   height: 'Growth that increases from one height of the starting shape to another.',
   noise: 'Organic variation on top of the other layers. It does not grow anything on its own.',
+  surface: 'Grows the whole surface evenly, like the outer layer of a brain. Erase with the brush where it should not grow.',
 }
 
 function Slider({ label, value, display, min, max, step, title, onChange, disabled }: {

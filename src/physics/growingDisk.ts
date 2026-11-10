@@ -20,6 +20,12 @@ export const DISK_DEFAULTS = {
   repelDistance: CONTACT_DEFAULTS.distance, repelStrength: CONTACT_DEFAULTS.strength,
   // Multiplies the default vertex limit so growth can keep adding triangles.
   detailScale: 1,
+  // A soft core under the surface, as in a brain: each solver pass pulls every vertex this share of the way back
+  // toward its place on the starting shape, so growth buckles into folds instead of inflating the model. 0 is off.
+  coreStiffness: 0,
+  // How much the core itself grows, as a share of the surface's growth. The anchors scale about the starting
+  // shape's center by 1 + coreGrowth × strain.
+  coreGrowth: 0.1,
 }
 
 export function diskGravityDirection({ gravityTilt, gravityHeading }: typeof DISK_DEFAULTS): [number, number, number] {
@@ -196,6 +202,8 @@ export function createGrowingDisk(input?: { positions: Float32Array; indices: Ui
   let splits = 0
   let mechanics = { ...DISK_DEFAULTS }
   let gravityDirection = diskGravityDirection(mechanics)
+  // Center of the starting shape's bounding box, found on the first step with a core.
+  let coreCenter: [number, number, number] | null = null
   const contactSettings = () => ({ distance: mechanics.repelDistance, strength: mechanics.repelStrength, field })
   let touched = new Uint8Array(0)
   let active = new Uint8Array(0)
@@ -623,6 +631,27 @@ export function createGrowingDisk(input?: { positions: Float32Array; indices: Ui
         }
       }
       holdAnchors()
+      // The core's anchors: the starting shape, scaled about its bounding-box center as the core grows. Edge splits
+      // add midpoints inside that box, so the center never moves and a reopened model continues exactly.
+      const core = mechanics.coreStiffness
+      const coreScale = 1 + mechanics.coreGrowth * strain
+      if (core > 0 && !coreCenter) {
+        const low = [Infinity, Infinity, Infinity], high = [-Infinity, -Infinity, -Infinity]
+        for (let i = 0; i < rest.length; i++) {
+          low[i % 3] = Math.min(low[i % 3], rest[i])
+          high[i % 3] = Math.max(high[i % 3], rest[i])
+        }
+        coreCenter = [(low[0] + high[0]) / 2, (low[1] + high[1]) / 2, (low[2] + high[2]) / 2]
+      }
+      const holdCore = () => {
+        if (!(core > 0) || !coreCenter) return
+        const [cx, cy, cz] = coreCenter
+        for (let p = 0; p < positions.length; p += 3) {
+          positions[p] += core * (cx + (rest[p] - cx) * coreScale - positions[p])
+          positions[p + 1] += core * (cy + (rest[p + 1] - cy) * coreScale - positions[p + 1])
+          positions[p + 2] += core * (cz + (rest[p + 2] - cz) * coreScale - positions[p + 2])
+        }
+      }
       for (let pass = 0; pass < 5; pass++) {
         for (const { a, b, length, weight } of links.values()) {
           const x = positions[b] - positions[a], y = positions[b + 1] - positions[a + 1], z = positions[b + 2] - positions[a + 2]
@@ -638,6 +667,7 @@ export function createGrowingDisk(input?: { positions: Float32Array; indices: Ui
           positions[b + 2] -= z * correction
         }
         bend(positions, mechanics.bending)
+        holdCore()
         holdAnchors()
       }
       // Search for contact only where the sheet grows, moved this step, or touched recently.

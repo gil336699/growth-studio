@@ -64,4 +64,12 @@ export const PRESETS: Preset[] = [
       phases: [{ mode: 'grow', steps: 600 }, { mode: 'relax', steps: 100 }],
     }),
   },
+  {
+    id: 'brain', name: 'Brain folds', description: 'The whole surface grows over a soft core, so it buckles into folds like a brain. Best on a closed shape.',
+    build: () => ({
+      layers: [createLayer('surface', { name: 'Whole surface' }), createLayer('paint')],
+      mechanics: { growthRate: 0.003, bending: 0.2, compoundGrowth: 0, gravity: 0, coreStiffness: 0.005, coreGrowth: 0.1, detailScale: 3.5 },
+      stopAt: { kind: 'step', value: 420 },
+    }),
+  },
 ]

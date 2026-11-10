@@ -2,12 +2,16 @@ import { BufferGeometry } from 'three'
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js'
 import { parseStl } from '../lib/stl'
 
+// A starting shape made in brain mode: the built-in brain, or an uploaded STL rebuilt as a smooth, closed shape.
+export type BrainInfo = { builtin: boolean; foldSize: 'fine' | 'medium' | 'broad'; smoothing?: 'light' | 'medium' | 'strong' }
+
 export type GrowthStlSource = {
   name: string
   scale: number
   sourceCenter?: [number, number, number]
   positions: Float32Array<ArrayBuffer>
   indices: Uint32Array<ArrayBuffer>
+  brain?: BrainInfo
 }
 
 export function readGrowthStl(buffer: ArrayBuffer, name: string): GrowthStlSource {

@@ -14,7 +14,9 @@ export type LineLayer = LayerBase & { kind: 'line'; points: Vec3[]; radius: numb
 export type HeightLayer = LayerBase & { kind: 'height'; low: number; high: number }
 export type NoiseLayer = LayerBase & { kind: 'noise'; scale: number; seed: number }
 export type PaintLayer = LayerBase & { kind: 'paint' }
-export type GrowthLayer = RimLayer | PointLayer | LineLayer | HeightLayer | NoiseLayer | PaintLayer
+// Grows every vertex evenly: for closed shapes, such as a brain, that have no rim to grow from.
+export type SurfaceLayer = LayerBase & { kind: 'surface' }
+export type GrowthLayer = RimLayer | PointLayer | LineLayer | HeightLayer | NoiseLayer | PaintLayer | SurfaceLayer
 export type LayerKind = GrowthLayer['kind']
 
 export type LayerMesh = {
@@ -24,7 +26,7 @@ export type LayerMesh = {
 }
 
 export const LAYER_LABELS: Record<LayerKind, string> = {
-  rim: 'Rim', paint: 'Painted', point: 'Point', line: 'Line', height: 'Height ramp', noise: 'Noise',
+  rim: 'Rim', paint: 'Painted', point: 'Point', line: 'Line', height: 'Height ramp', noise: 'Noise', surface: 'Whole surface',
 }
 
 let nextId = 0
@@ -50,7 +52,7 @@ export function defaultLayers(imported: boolean): GrowthLayer[] {
 }
 
 export const isSource = (layer: GrowthLayer) => layer.kind === 'rim' || layer.kind === 'point'
-  || layer.kind === 'line' || layer.kind === 'height'
+  || layer.kind === 'line' || layer.kind === 'height' || layer.kind === 'surface'
 export const isTimed = (layer: GrowthLayer) => layer.timing.start > 0 || layer.timing.end !== null || layer.timing.keys.length > 0
 
 export function timeFactor({ start, end, keys }: LayerTiming, step: number) {
@@ -164,6 +166,8 @@ export function layerWeights(layer: GrowthLayer, mesh: LayerMesh): Float32Array 
       weights[v] = layer.high === layer.low ? Number(h >= layer.low)
         : Math.min(1, Math.max(0, (h - layer.low) / (layer.high - layer.low)))
     }
+  } else if (layer.kind === 'surface') {
+    weights.fill(1)
   } else if (layer.kind === 'noise') {
     for (let v = 0; v < count; v++) {
       const p = restPoint(rest, v)
@@ -237,7 +241,7 @@ export function validLayers(value: unknown): value is GrowthLayer[] {
       case 'line': return Array.isArray(layer.points) && layer.points.length <= 256 && layer.points.every(vec) && finite(layer.radius, 0.005, 2) && falloff(layer.falloff)
       case 'height': return finite(layer.low, 0, 1) && finite(layer.high, 0, 1)
       case 'noise': return finite(layer.scale, 0.01, 10) && finite(layer.seed, 0, 1e6)
-      case 'paint': return true
+      case 'paint': case 'surface': return true
       default: return false
     }
   })

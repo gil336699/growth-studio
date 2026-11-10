@@ -218,6 +218,12 @@ details[open] > summary::after { transform: rotate(45deg); }
 .eyebrow { color: var(--label-2); font-size: 11px; font-weight: 600; }
 .side-panel .model-card h2 { margin: 2px 0 1px; overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
 .model-card > .hint { margin: 0 0 10px; }
+/* The Sheet / Brain switch shares a row with the card's label. */
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 2px; }
+.button-row.mode-switch { grid-template-columns: auto auto; margin-top: 0; }
+.button-row.mode-switch button { min-height: 24px; padding: 0 12px; font-size: 12px; }
+.model-card .group-field { margin-top: 10px; }
+.hint.credit a { color: inherit; text-decoration: underline; }
 .overlap-warning { margin-top: 10px; padding: 10px 12px; border-radius: var(--r-group); background: color-mix(in srgb, var(--orange) 16%, transparent); font-size: 12px; line-height: 1.4; }
 .overlap-warning[role='alert'] { background: color-mix(in srgb, var(--red) 14%, transparent); }
 .overlap-warning p + p { margin-top: 6px; }

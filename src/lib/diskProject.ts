@@ -1,4 +1,4 @@
-import type { GrowthStlSource } from '../physics/growthStl'
+import type { BrainInfo, GrowthStlSource } from '../physics/growthStl'
 import { DISK_DEFAULTS, type DiskSnapshot } from '../physics/growingDisk'
 import { validLayers } from '../physics/growthLayers'
 import { RIM_ROUNDNESS, WALL_SHIFT, type RimProfile, type WallSide } from './thicken'
@@ -60,9 +60,11 @@ const pairs = (value: unknown, vertices: number) => Array.isArray(value) && valu
   Array.isArray(pair) && pair.length === 2 && count(pair[0], vertices - 1) && finite(pair[1], 0, 1))
 
 const ranges: Record<keyof typeof DISK_DEFAULTS, [number, number]> = {
-  growthRate: [0, 0.008], bending: [0, 0.3], damping: [0.02, 0.9], remeshLength: [0.09, 0.25],
+  // Brain mode's Fine fold size splits at 0.07; projects from before it never go below 0.09.
+  growthRate: [0, 0.008], bending: [0, 0.3], damping: [0.02, 0.9], remeshLength: [0.05, 0.25],
   gravity: [0, 1], gravityTilt: [0, 180], gravityHeading: [0, 359],
   compoundGrowth: [0, 1], repelDistance: [0.004, 0.04], repelStrength: [0.1, 1], detailScale: [1, 4],
+  coreStiffness: [0, 0.05], coreGrowth: [0, 1],
 }
 
 export function serializeDiskProject(project: DiskProject) {
@@ -73,6 +75,9 @@ const validBrush = (brush: BrushSettings) => finite(brush.radius, 0.01, 0.6) && 
   && finite(brush.hardness, 0, 1) && ['off', 'mirror', 'radial'].includes(brush.symmetry) && count(brush.copies, 24) && brush.copies >= 2
 const validPhases = (phases: Phase[]) => Array.isArray(phases) && phases.length <= 32
   && phases.every(phase => (phase.mode === 'grow' || phase.mode === 'relax') && count(phase.steps, 100_000) && phase.steps > 0)
+const validBrain = (brain: BrainInfo) => typeof brain === 'object' && brain !== null && typeof brain.builtin === 'boolean'
+  && ['fine', 'medium', 'broad'].includes(brain.foldSize)
+  && (brain.smoothing === undefined || ['light', 'medium', 'strong'].includes(brain.smoothing))
 const validStop = (stop: StopAt) => ['none', 'size', 'step', 'strain'].includes(stop.kind) && finite(stop.value, 0, 1e6)
 const validThickness = (thickness: Thickness) => typeof thickness === 'object' && thickness !== null
   && typeof thickness.on === 'boolean' && finite(thickness.wall, 0.05, 50)
@@ -102,7 +107,8 @@ export function deserializeDiskProject(json: string) {
     || !finite(disk.strain, 0, 1e30)
     || (source !== null && (!source || typeof source.name !== 'string' || !finite(source.scale, Number.MIN_VALUE, 1e30)
       || !mesh(source.positions, source.indices)
-      || (source.sourceCenter !== undefined && !floats(source.sourceCenter, 3))))
+      || (source.sourceCenter !== undefined && !floats(source.sourceCenter, 3))
+      || (source.brain !== undefined && !validBrain(source.brain))))
     || (project.centerExport !== undefined && typeof project.centerExport !== 'boolean')
     || !mechanics || !Object.entries(ranges).every(([key, [min, max]]) => finite(mechanics[key as keyof typeof mechanics], min, max))
     || typeof project.relaxing !== 'boolean'

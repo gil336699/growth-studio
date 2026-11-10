@@ -17,6 +17,8 @@ export type Solid = {
   origin: Uint32Array
   // Surface edges used by only one face, now closed by the rim.
   rimEdges: number
+  // Drawn with smooth shading: the outer layer of a closed shape, which has no facets to keep.
+  smooth?: boolean
 }
 
 // The rim's cross-section from the top face to the bottom face, as [outward, along the normal] pairs.
