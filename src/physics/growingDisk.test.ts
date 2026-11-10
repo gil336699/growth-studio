@@ -89,6 +89,15 @@ it('scales the mesh detail limit and keeps it through a saved snapshot', () => {
   expect(reopened.growthBudget).toBe(base)
 })
 
+it('scales the vertex limit by budgetScale on top of the detail limit, never below the current count', () => {
+  const disk = createGrowingDisk()
+  const base = disk.growthBudget
+  disk.setMechanics({ ...DISK_DEFAULTS, detailScale: 2, budgetScale: 1.5 })
+  expect(disk.growthBudget).toBe(Math.round(base * 3))
+  disk.setMechanics({ ...DISK_DEFAULTS, budgetScale: 0.25 })
+  expect(disk.growthBudget).toBe(Math.max(disk.positions.length / 3, Math.round(base * 0.25)))
+})
+
 it('grows past the default vertex limit when the detail limit is raised', () => {
   const capped = createGrowingDisk(), raised = createGrowingDisk()
   capped.setMechanics({ ...DISK_DEFAULTS, growthRate: 0.008 })

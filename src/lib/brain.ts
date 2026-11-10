@@ -13,7 +13,8 @@ export type Smoothing = 'light' | 'medium' | 'strong'
 type Mechanics = typeof DISK_DEFAULTS
 
 // Fold size sets the starting mesh's spacing and the split length during growth: folds come out about three mesh
-// edges wide. Medium is the reel.
+// edges wide. Medium is the reel. Changed after growth has begun, only the split length changes, so the brain keeps its
+// shape and grows on at the new size.
 export const FOLD_SIZES: Record<FoldSize, { label: string; spacing: number; remeshLength: number; tip: string }> = {
   fine: { label: 'Fine', spacing: 0.045, remeshLength: 0.07, tip: 'More, smaller folds. Grows more slowly.' },
   medium: { label: 'Medium', spacing: 0.055, remeshLength: 0.09, tip: 'Folds a little smaller than a real brain’s, as in the reel.' },
@@ -36,6 +37,8 @@ export const BRAIN_LENGTH_MM = 150
 // The recipe's outer layer: 0.02 units out from the surface, a 2.7 mm cortex on the 150 mm brain.
 export const BRAIN_LAYER = 0.02
 export const BRAIN_STOP: StopAt = { kind: 'step', value: 420 }
+// How far Stop at moves when Fold size changes on a brain that has stopped there, so Play growth carries on.
+export const BRAIN_CONTINUE = 140
 // Starting edge length for brain shapes: large, so the prepared mesh is used as it is, as in the reel's run.
 export const BRAIN_START_EDGE = 10
 
@@ -48,8 +51,22 @@ export const BRAIN_CREDIT = {
 export function brainMechanics(current: Mechanics, size: FoldSize): Mechanics {
   return {
     ...current, growthRate: DISK_DEFAULTS.growthRate, compoundGrowth: 0, bending: 0.2, gravity: 0,
-    coreStiffness: 0.005, coreGrowth: 0.1, detailScale: 3.5, remeshLength: FOLD_SIZES[size].remeshLength,
+    coreStiffness: 0.005, coreGrowth: 0.1, detailScale: 3.5, remeshLength: FOLD_SIZES[size].remeshLength, budgetScale: 1,
   }
+}
+
+// Settings for growing on at another fold size, on a brain whose starting shape was meshed for `prepared`: the new split
+// length, and a vertex limit raised for a finer size, since the same area needs (old / new)² as many vertices. A broader
+// size keeps the limit: lowering it to the vertices already there would stop splitting at once and warn of a limit
+// that growth never reached.
+export function foldMechanics(current: Mechanics, size: FoldSize, prepared: FoldSize): Mechanics {
+  const remeshLength = FOLD_SIZES[size].remeshLength
+  return { ...current, remeshLength, budgetScale: Math.max(1, (FOLD_SIZES[prepared].remeshLength / remeshLength) ** 2) }
+}
+
+// The fold size whose split length the settings use, or null for another length set under Advanced.
+export function foldSizeOf(remeshLength: number): FoldSize | null {
+  return FOLD_ORDER.find(size => Math.abs(FOLD_SIZES[size].remeshLength - remeshLength) < 1e-9) ?? null
 }
 
 export function brainLayers(): GrowthLayer[] {

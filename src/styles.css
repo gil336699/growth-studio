@@ -333,11 +333,14 @@ dt[data-tip], .bar-segment > span[data-tip] { cursor: help; text-decoration: und
 .field-key.key-growth::before { background: #5b4bd6; }
 .field-key.key-contact::before { background: #e0a100; }
 .field-key.key-crossing::before { background: #ff2d95; }
-.timeline { padding: 10px 12px; border-radius: var(--r-panel); pointer-events: auto; }
+/* min-width: 0 keeps a long status from widening the dock past the screen. */
+.timeline { min-width: 0; padding: 10px 12px; border-radius: var(--r-panel); pointer-events: auto; }
 .timeline-head { display: flex; align-items: center; gap: 8px; }
 .transport { display: flex; gap: 6px; }
 .transport button { min-height: 32px; padding: 0 14px; }
-.timeline-status { flex: 1; min-width: 0; padding: 0 4px; overflow: hidden; color: var(--label-2); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+/* Up to two lines, which fit beside the 32 px playback buttons, so a longer message isn't cut off. */
+.timeline-status { flex: 1; min-width: 0; padding: 0 4px; overflow: hidden; color: var(--label-2); font-size: 12px; line-height: 15px;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; text-wrap: balance; }
 .playback-status[data-warning='true'] { color: var(--orange); font-weight: 600; }
 .phases-toggle { flex: none; min-height: 28px; padding: 0 12px; font-weight: 500; }
 .chevron { color: var(--label-3); font-size: 9px; }

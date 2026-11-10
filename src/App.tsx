@@ -30,8 +30,8 @@ import type { GrowthLayer, Vec3 } from './physics/growthLayers'
 import { growthExportPositions, readGrowthStl, type GrowthStlSource } from './physics/growthStl'
 import { MAX_TRIANGLES, SLOW_TRIANGLES, stlTriangleCount } from './lib/stl'
 import {
-  BRAIN_LAYER, BRAIN_START_EDGE, BRAIN_STOP, brainErase, brainFromStl, brainLayers, brainMechanics, FOLD_SIZES, loadBuiltInBrain,
-  OpenShapeError, SMOOTHING, type FoldSize, type Smoothing,
+  BRAIN_CONTINUE, BRAIN_LAYER, BRAIN_START_EDGE, BRAIN_STOP, brainErase, brainFromStl, brainLayers, brainMechanics, FOLD_SIZES,
+  foldMechanics, foldSizeOf, loadBuiltInBrain, OpenShapeError, SMOOTHING, type FoldSize, type Smoothing,
 } from './lib/brain'
 import { useOuterLayer } from './lib/useOuterLayer'
 
@@ -53,6 +53,8 @@ const RIM_PROFILES: [RimProfile, string, string][] = [
   ['square', 'Square', 'A flat edge cut straight across the wall.'],
 ]
 const percent = (value: number, digits = 0) => `${(value * 100).toFixed(digits)}%`
+// Controls that Space presses when they have keyboard focus.
+const PRESSABLE = 'button, a, summary, [role=tab]'
 // A number for each model session, so work keyed on a model's geometry revision can tell two models apart.
 const sessionIds = new WeakMap<object, number>()
 let sessionCount = 0
@@ -144,6 +146,8 @@ export function App() {
   const step = disk.clock
   const rims = disk.openRims
   const unsaved = step !== savedPoint.step || edits !== savedPoint.edits
+  // Grown at all, including when looking back at an earlier step: changing Fold size then keeps the timeline.
+  const grown = step > 0 || snapshots.some(snap => snap.mark.step > 0)
   // Actions that replace the current design ask first in an in-app dialog; browser confirm dialogs can be blocked.
   const [pending, setPending] = useState<{ title: string; confirm: string; run: () => void } | null>(null)
   const guard = (title: string, confirm: string, run: () => void) => {
@@ -258,10 +262,27 @@ export function App() {
     }
     return createDiskSession(fresh, { source, mechanics: settings })
   }
-  const reset = () => {
+  const reset = async () => {
     stopPlayback()
     setRelaxing(false)
-    adopt(freshSurface(input, layers))
+    // A brain whose Fold size changed while it grew goes back to a smooth brain meshed for the new size, as a fresh
+    // brain of that size would start. An upload reopened from a project can't be rebuilt, so it keeps its shape.
+    let source = input, settings = mechanics
+    if (input?.brain && input.brain.foldSize !== brainFold && (input.brain.builtin || brainUpload)) {
+      setLoading(true)
+      try {
+        if (!input.brain.builtin) await new Promise(resolve => setTimeout(resolve, 30))
+        source = input.brain.builtin ? await loadBuiltInBrain(brainFold) : brainFromStl(brainUpload!.buffer, brainUpload!.name, brainFold, brainSmoothing)
+        settings = { ...mechanics, budgetScale: 1 }
+        setInput(source)
+        setMechanics(settings)
+      } catch {
+        // Offline, say: reset to the starting shape it has.
+      } finally {
+        setLoading(false)
+      }
+    }
+    adopt(freshSurface(source, layers, settings))
     setSavedPoint({ step: 0, edits })
     setNotice('')
     setExportStatus('')
@@ -398,14 +419,33 @@ export function App() {
     if (next === 'brain') guard('Switch to brain mode?', 'Discard and switch', () => void loadBrain(brainFold))
     else guard('Switch to sheet mode?', 'Discard and switch', leaveBrainMode)
   }
-  // Fold size and Smoothing rebuild the starting shape: the built-in brain at another spacing, or the upload again.
+  // Before growth, Fold size rebuilds the starting shape: the built-in brain at another spacing, or the upload again.
+  // Once the brain has grown, it keeps the shape and the timeline: growth carries on with the new split length, and the
+  // folds already grown stay. Smoothing always rebuilds, since it changes the starting shape itself.
   const changeBrainFold = (size: FoldSize) => {
     const brain = input?.brain
-    if (!brain || brain.foldSize === size) return
-    guard(`Rebuild the brain with ${FOLD_SIZES[size].label.toLowerCase()} folds?`, 'Rebuild', () => {
-      if (brain.builtin) void loadBrain(size)
-      else if (brainUpload) void importBrainStl(brainUpload, size, brainSmoothing)
+    if (!brain || size === brainFold) return
+    const label = FOLD_SIZES[size].label
+    if (!grown && (brain.builtin || brainUpload)) {
+      guard(`Rebuild the brain with ${label.toLowerCase()} folds?`, 'Rebuild', () => {
+        if (brain.builtin) void loadBrain(size)
+        else if (brainUpload) void importBrainStl(brainUpload, size, brainSmoothing)
+      })
+      return
+    }
+    setMechanics(current => {
+      const settings = foldMechanics(current, size, brain.foldSize)
+      disk.setMechanics(settings)
+      return settings
     })
+    setBrainFold(size)
+    // A brain that stopped at Stop at would stop again at once, so move the stop on.
+    const moved = !active && stopAt.kind === 'step' && step >= stopAt.value
+    if (moved) setStopAt({ kind: 'step', value: step + BRAIN_CONTINUE })
+    // Short enough for one line beside the playback buttons, or two balanced lines; the numbers stay with their words.
+    if (!active) setNotice(!grown ? `${label} folds as it grows. Press Play growth.`
+      : moved ? `${label} folds from step\u00a0${step}. Stop at is now\u00a0${step + BRAIN_CONTINUE}.` : `${label} folds from step\u00a0${step}. Press Play growth.`)
+    touch()
   }
   const changeBrainSmoothing = (level: Smoothing) => {
     const upload = brainUpload
@@ -468,7 +508,8 @@ export function App() {
       setBrainUpload(null)
       setMode(project.source?.brain ? 'brain' : 'sheet')
       if (project.source?.brain) {
-        setBrainFold(project.source.brain.foldSize)
+        // The fold size growth was using, which differs from the starting shape's if it changed while growing.
+        setBrainFold(foldSizeOf(project.mechanics.remeshLength) ?? project.source.brain.foldSize)
         if (project.source.brain.smoothing) setBrainSmoothing(project.source.brain.smoothing)
       }
       setCenterExport(project.centerExport ?? false)
@@ -623,6 +664,16 @@ export function App() {
     setNotice('Continuing from the chosen variant.')
   }
 
+  // The control a click or tap last focused. Space on it still plays or stops; Space on a control reached another way,
+  // such as with Tab, presses that control. :focus-visible can't tell them apart, since a key press turns it on.
+  const pointerFocus = useRef<Element | null>(null)
+  useEffect(() => {
+    const down = (event: PointerEvent) => { pointerFocus.current = event.target instanceof Element ? event.target.closest(PRESSABLE) : null }
+    const focus = (event: FocusEvent) => { if (event.target !== pointerFocus.current) pointerFocus.current = null }
+    window.addEventListener('pointerdown', down, true)
+    window.addEventListener('focusin', focus, true)
+    return () => { window.removeEventListener('pointerdown', down, true); window.removeEventListener('focusin', focus, true) }
+  }, [])
   // Keyboard shortcuts, ignored while typing in a field. Re-registered each render so handlers see current state.
   useEffect(() => {
   const onKey = (event: KeyboardEvent) => {
@@ -633,6 +684,10 @@ export function App() {
     if (mod && event.key.toLowerCase() === 'z') { event.preventDefault(); if (disk.canUndoBrush) undoStroke(); return }
     if (mod || event.altKey) return
     const key = event.key
+    // Space presses a button reached with the keyboard, as it does everywhere. A button that was clicked keeps focus,
+    // and there Space still plays or stops.
+    const pressable = target?.closest(PRESSABLE)
+    if (key === ' ' && pressable && pressable !== pointerFocus.current) return
     if (key === ' ') { event.preventDefault(); if (active) stopPlayback(); else if (canSimulate) play() }
     else if (key === '.') { if (!active && canSimulate) stepOnce() }
     else if (key === 'o' || key === 'O') setTool('orbit')
@@ -699,9 +754,9 @@ export function App() {
       onClick={() => active ? stopPlayback() : play()}><Icon name={active ? 'stop' : 'play'} />{active ? 'Stop' : relaxing ? 'Play relaxation' : 'Play growth'}</button>
     <button disabled={active || !canSimulate} data-key="."
       data-tip={active ? 'Stop playback first.' : blockedReason || `Run ${manualSteps} steps, then pause. Change the batch size under Simulation › Advanced.`} onClick={stepOnce}><Icon name="step" /><span className="compact-label">Step {manualSteps}</span></button>
-    <button disabled={loading} data-tip={input?.brain?.builtin ? 'Go back to the smooth brain and clear the timeline and your paint. Layers and settings stay.'
+    <button disabled={loading} data-tip={input?.brain?.builtin ? 'Go back to the smooth brain at this fold size, and clear the timeline and your paint. Layers and settings stay.'
       : 'Go back to the starting surface and clear the timeline and paint. Your layers and settings stay.'}
-      onClick={() => guard('Reset to the starting surface?', 'Reset', reset)}><Icon name="reset" /><span className="compact-label">Reset</span></button>
+      onClick={() => guard('Reset to the starting surface?', 'Reset', () => void reset())}><Icon name="reset" /><span className="compact-label">Reset</span></button>
   </div>
   const status = <span className="playback-status" role="status" data-warning={Boolean(disk.initialOverlap || disk.stepStatus === 'contact' || detailLimit)}>
     {playbackStatus}{detailLimit && <><span aria-hidden="true"> · </span>Mesh detail limit</>}
@@ -734,7 +789,7 @@ export function App() {
         </div>
         <h2 id="model-name" data-tip={input ? input.name : 'A flat disk with one open rim, ready to grow.'}>{input ? input.name : 'Default disk'}</h2>
         <p className="hint" data-tip={input ? `Prepared with ${disk.preparationSplits} edge splits and ${disk.preparationFlips} balancing flips.` : undefined}>
-          {input?.brain ? `Closed · ${(input.indices.length / 3).toLocaleString()} triangles · ${FOLD_SIZES[input.brain.foldSize].label.toLowerCase()} folds`
+          {input?.brain ? `Closed · ${(input.indices.length / 3).toLocaleString()} triangles · ${FOLD_SIZES[brainFold].label.toLowerCase()} folds`
             : <>{rims.length} open {rims.length === 1 ? 'rim' : 'rims'}{input ? ` · ${(input.indices.length / 3).toLocaleString()} triangles` : ' · flat sheet'}</>}
         </p>
         <input ref={inputRef} type="file" accept=".stl,model/stl" hidden aria-label="Choose an STL file" onChange={event => {
@@ -745,7 +800,7 @@ export function App() {
           else void importStl(file)
         }} />
         {mode === 'brain' ? <BrainControls brain={input?.brain ?? null} foldSize={brainFold} smoothing={brainSmoothing} loading={loading}
-          canRebuild={Boolean(input?.brain?.builtin || brainUpload)}
+          canRebuild={Boolean(input?.brain?.builtin || brainUpload)} grown={grown}
           onBuiltIn={() => guard('Load the built-in brain?', 'Discard and load', () => void loadBrain(brainFold))}
           onUpload={() => guard('Load a new STL?', 'Discard and choose STL', () => inputRef.current?.click())}
           onFoldSize={changeBrainFold} onSmoothing={changeBrainSmoothing} />
@@ -838,8 +893,10 @@ export function App() {
         <section><details open={advancedOpen} onToggle={event => setAdvancedOpen(event.currentTarget.open)}><summary data-tip="Mesh resolution, motion damping, and playback speed.">Advanced</summary>
           <Slider label="Damping" value={mechanics.damping} display={percent(mechanics.damping)} min={0.02} max={0.9} step={0.01}
             title="Calms wobbling after the sheet bends. Higher settles faster but looks stiffer." onChange={value => change('damping', value)} />
-          <Slider label="Remesh edge length" value={mechanics.remeshLength} display={mechanics.remeshLength.toFixed(3)} min={0.09} max={0.25} step={0.005}
-            title="Starting triangle size and split threshold. Smaller values hold smaller folds. Press Reset to apply to an STL."
+          {/* Brain mode's Fine fold size splits at 0.07, below the sheet range. */}
+          <Slider label="Remesh edge length" value={mechanics.remeshLength} display={mechanics.remeshLength.toFixed(3)} min={input?.brain ? 0.05 : 0.09} max={0.25} step={0.005}
+            title={input?.brain ? 'Split threshold while growing. Fold size sets it; smaller values hold smaller folds.'
+              : 'Starting triangle size and split threshold. Smaller values hold smaller folds. Press Reset to apply to an STL.'}
             onChange={value => change('remeshLength', value)} />
           <Slider label="Mesh detail limit" value={mechanics.detailScale} display={`${disk.growthBudget.toLocaleString()} vertices · ${mechanics.detailScale}×`}
             min={1} max={4} step={0.25} title="How many vertices growth can add. Higher limits keep folds refining but run slower."
@@ -900,7 +957,7 @@ export function App() {
             {size.millimeters && <div><dt data-tip="Bounding box of the current shape, in the STL's millimeters.">Dimensions</dt><dd>{size.millimeters.map(v => Math.round(v)).join(' × ')} mm</dd></div>}
             <div><dt data-tip="How far the most-grown area has been told to expand. 100% means its edges want to be twice their starting length.">Target strain</dt><dd>{percent(disk.strain)}</dd></div>
           </dl>
-          {input?.brain ? <p className="hint">In brain mode, Fold size is in the Starting surface card: it sets how finely the brain is meshed.</p> : <>
+          {input?.brain ? <p className="hint">In brain mode, Fold size is in the Starting surface card. You can change it while the brain grows.</p> : <>
           <Slider label="Fold size" value={foldSize} display={foldSize < 0.33 ? 'Fine' : foldSize < 0.66 ? 'Medium' : 'Broad'} min={0} max={1} step={0.05}
             title={rimLayers.length ? 'Sets rim growth width and bend stiffness together. Finer folds need a narrow field and a soft sheet.' : 'Add a rim layer to use Fold size.'} disabled={!rimLayers.length}
             onChange={setFoldSize} />

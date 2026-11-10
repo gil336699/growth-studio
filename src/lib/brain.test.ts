@@ -4,7 +4,7 @@ import { expect, it } from 'vitest'
 import { createGrowingDisk, DISK_DEFAULTS } from '../physics/growingDisk'
 import {
   BRAIN_LENGTH_MM, BRAIN_RADIUS, BRAIN_START_EDGE, brainErase, brainFromStl, brainLayers, brainMechanics,
-  builtInBrainSource, decodeBrainMesh, FOLD_ORDER, OpenShapeError, type FoldSize,
+  builtInBrainSource, decodeBrainMesh, FOLD_ORDER, FOLD_SIZES, foldMechanics, foldSizeOf, OpenShapeError, type FoldSize,
 } from './brain'
 import { deserializeDiskProject, serializeDiskProject } from './diskProject'
 import { edgeProblems, signedVolume } from './voxel'
@@ -67,6 +67,39 @@ it('folds the built-in brain with the recipe while its midline stays put', () =>
   expect(moved(growing)).toBeGreaterThan(3 * moved(midline))
 }, 60000)
 
+it('grows a brain on at another fold size from where it is, with room for the finer mesh', () => {
+  for (const size of FOLD_ORDER) expect(foldSizeOf(FOLD_SIZES[size].remeshLength)).toBe(size)
+  expect(foldSizeOf(0.1)).toBeNull()
+  const broadRecipe = brainMechanics(DISK_DEFAULTS, 'broad')
+  const toFine = foldMechanics(broadRecipe, 'fine', 'broad')
+  expect(toFine.remeshLength).toBe(FOLD_SIZES.fine.remeshLength)
+  expect(toFine.budgetScale).toBeCloseTo((0.11 / 0.07) ** 2, 9)
+  expect(toFine.coreStiffness).toBe(broadRecipe.coreStiffness)
+  expect(foldMechanics(toFine, 'broad', 'broad').budgetScale).toBe(1)
+  // A broader size keeps the vertex limit, so growth isn't stopped at the vertices it already has.
+  expect(foldMechanics(brainMechanics(DISK_DEFAULTS, 'fine'), 'broad', 'fine').budgetScale).toBe(1)
+  expect(brainMechanics(toFine, 'medium').budgetScale).toBe(1)
+
+  // Grow a broad brain, then carry on from the same state at Broad and at Fine.
+  const source = builtInBrainSource(brainFile('broad'), 'broad')
+  const disk = createGrowingDisk(source, BRAIN_START_EDGE)
+  disk.setLayers(brainLayers())
+  disk.paint.erase.set(brainErase(disk.rest))
+  disk.setLayers(disk.layers)
+  disk.setMechanics(broadRecipe)
+  for (let i = 0; i < 60; i++) disk.step(true)
+  const snapshot = disk.snapshot()
+  const broad = createGrowingDisk(source, BRAIN_START_EDGE, snapshot), fine = createGrowingDisk(source, BRAIN_START_EDGE, snapshot)
+  broad.setMechanics(broadRecipe)
+  fine.setMechanics(toFine)
+  expect(fine.growthBudget).toBeCloseTo(broad.growthBudget * toFine.budgetScale, -1)
+  for (let i = 0; i < 40; i++) { broad.step(true); fine.step(true) }
+  expect(fine.clock).toBe(100)
+  // Nothing starts over: the shape it had is kept, and the finer split length adds vertices as it grows.
+  expect(fine.positions.length).toBeGreaterThan(1.2 * broad.positions.length)
+  expect(fine.rejectedSteps).toBeLessThan(5)
+}, 60000)
+
 // A binary STL of a closed, Z-up shape: an octahedron stretched 40 × 30 × 20 mm, or its upper half as an open sheet.
 function octahedronStl(open = false) {
   const p = [[20, 0, 0], [-20, 0, 0], [0, 15, 0], [0, -15, 0], [0, 0, 10], [0, 0, -10]]
@@ -108,15 +141,24 @@ it('saves and reopens a brain project with its core and brain settings, and open
   const project = deserializeDiskProject(json)
   expect(project.source?.brain).toEqual({ builtin: true, foldSize: 'broad' })
   expect(project.mechanics.coreStiffness).toBe(0.005)
+  expect(project.mechanics.budgetScale).toBe(1)
   expect(project.disk.layers?.[0].kind).toBe('surface')
   const old = JSON.parse(json)
   delete old.mechanics.coreStiffness
   delete old.mechanics.coreGrowth
+  delete old.mechanics.budgetScale
   delete old.source.brain
   const reopened = deserializeDiskProject(JSON.stringify(old))
   expect(reopened.mechanics.coreStiffness).toBe(0)
+  expect(reopened.mechanics.budgetScale).toBe(1)
   expect(reopened.source?.brain).toBeUndefined()
   const bad = JSON.parse(json)
   bad.source.brain.foldSize = 'huge'
   expect(() => deserializeDiskProject(JSON.stringify(bad))).toThrow('invalid design data')
+  // A Fold size changed while growing is saved in the settings; a limit scale out of range is refused.
+  const changed = deserializeDiskProject(serializeDiskProject({ ...JSON.parse(json), mechanics: foldMechanics(mechanics, 'fine', 'broad') }))
+  expect(foldSizeOf(changed.mechanics.remeshLength)).toBe('fine')
+  const huge = JSON.parse(json)
+  huge.mechanics.budgetScale = 9
+  expect(() => deserializeDiskProject(JSON.stringify(huge))).toThrow('invalid design data')
 }, 30000)

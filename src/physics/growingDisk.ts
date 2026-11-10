@@ -20,6 +20,9 @@ export const DISK_DEFAULTS = {
   repelDistance: CONTACT_DEFAULTS.distance, repelStrength: CONTACT_DEFAULTS.strength,
   // Multiplies the default vertex limit so growth can keep adding triangles.
   detailScale: 1,
+  // Also multiplies the vertex limit, to follow a split length other than the one the model was prepared for. Brain
+  // mode sets it when Fold size changes after growth has begun: the same area needs (old / new)² as many vertices.
+  budgetScale: 1,
   // A soft core under the surface, as in a brain: each solver pass pulls every vertex this share of the way back
   // toward its place on the starting shape, so growth buckles into folds instead of inflating the model. 0 is off.
   coreStiffness: 0,
@@ -529,7 +532,7 @@ export function createGrowingDisk(input?: { positions: Float32Array; indices: Ui
       mechanics = { ...settings }
       gravityDirection = diskGravityDirection(settings)
       // Never drop below the current vertex count: lowering the limit only stops further splits.
-      growthBudget = Math.max(positions.length / 3, Math.round(baseBudget * settings.detailScale))
+      growthBudget = Math.max(positions.length / 3, Math.round(baseBudget * settings.detailScale * settings.budgetScale))
     },
     get strain() { return acceptedGrowth },
     get layers(): GrowthLayer[] { return structuredClone(layers) },

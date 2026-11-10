@@ -69,7 +69,7 @@ Brain mode grows a closed shape the way a brain folds. The whole surface grows o
 | --- | --- |
 | Built-in brain | Loads the built-in brain again. |
 | Upload STL | Loads your own closed shape. Brain mode rebuilds it as one smooth, closed surface, scaled so the recipe gives the same fold size, and keeps its millimeters. An open surface, such as a vase, is refused; use Sheet mode and the Brain folds preset instead. |
-| Fold size | **Fine**, **Medium** or **Broad**. Rebuilds the starting shape at a finer or coarser mesh: more, smaller folds, or fewer, wider ones. Medium is the reel. |
+| Fold size | **Fine**, **Medium** or **Broad**: more, smaller folds, or fewer, wider ones. Medium is the reel. Before growth, it rebuilds the starting shape at a finer or coarser mesh. Once the brain has grown, it keeps its folds and the timeline, and grows on at the new size from that step. If growth had stopped at Stop at, the stop moves 140 steps on. Reset goes back to a smooth brain at the current size. |
 | Smoothing | For an upload: **Light** keeps it close to the STL, **Medium** rounds off small bumps, and **Strong** smooths an already folded brain scan back into a smooth one. |
 
 Brain mode sets everything else from the reel's recipe, and each setting can still be changed:
@@ -141,7 +141,7 @@ In the **Explore** tab, **Presets** set layers and settings for common forms: le
 
 | Key | Action |
 | --- | --- |
-| Space | Play or stop |
+| Space | Play or stop. On a button reached with Tab, Space presses that button instead. |
 | . | Step |
 | O, B, E, S | Orbit, paint, erase, smooth |
 | [ and ] | Brush size |

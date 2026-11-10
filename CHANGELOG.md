@@ -1,5 +1,17 @@
 # Growth Studio Changelog
 
+## 0.9.1 2026-11-10
+
+- **Fold size keeps growing.** Once a brain has grown, Fine, Medium or Broad no longer rebuild it from the smooth brain. The brain keeps its folds and its timeline, and grows on at the new size from that step, even while it's playing. Before growth, Fold size still rebuilds the starting shape, since there's nothing to lose.
+  - If growth had stopped at Stop at, the stop moves 140 steps on, so Play growth carries on. The status line says so.
+  - A finer size raises the vertex limit to match, so Fine has room for its smaller triangles.
+  - From an earlier step on the timeline, the new size applies when you play from there.
+  - Reset goes back to a smooth brain at the current size.
+  - A saved project reopens at the size it was growing at.
+- **Space presses a button reached with Tab.** Before, Space always played or stopped growth, so a keyboard user couldn't press the focused button with it. After a mouse click, Space still plays or stops.
+- On phones, a long status message wraps onto a second line. Before, it widened the playback panel past the screen and hid the Phases button and the snapshot interval.
+- Simulation › Advanced › Remesh edge length goes down to 0.05 in brain mode, so Fine's 0.07 sits inside the slider. Before, the slider started at 0.09.
+
 ## 0.9.0 2026-11-10
 
 - **Brain mode.** A **Sheet / Brain** switch in the Starting surface card. Brain mode grows a closed shape the way a brain folds:

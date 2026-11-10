@@ -65,6 +65,8 @@ const ranges: Record<keyof typeof DISK_DEFAULTS, [number, number]> = {
   gravity: [0, 1], gravityTilt: [0, 180], gravityHeading: [0, 359],
   compoundGrowth: [0, 1], repelDistance: [0.004, 0.04], repelStrength: [0.1, 1], detailScale: [1, 4],
   coreStiffness: [0, 0.05], coreGrowth: [0, 1],
+  // Fold size made finer while growing: up to (0.11 / 0.07)², from Broad to Fine.
+  budgetScale: [1, 4],
 }
 
 export function serializeDiskProject(project: DiskProject) {

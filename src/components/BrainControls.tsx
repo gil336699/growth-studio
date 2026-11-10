@@ -1,15 +1,18 @@
 // The Starting surface card's brain-mode controls: where the brain comes from, its fold size and, for an uploaded STL,
-// how much it is smoothed. Changing either rebuilds the starting shape.
+// how much it is smoothed. Before growth, Fold size rebuilds the starting shape; after, growth carries on at the new
+// size. Smoothing always rebuilds.
 import { BRAIN_CREDIT, FOLD_ORDER, FOLD_SIZES, SMOOTHING, SMOOTHING_ORDER, type FoldSize, type Smoothing } from '../lib/brain'
 import type { BrainInfo } from '../physics/growthStl'
 
-export function BrainControls({ brain, foldSize, smoothing, loading, canRebuild, onBuiltIn, onUpload, onFoldSize, onSmoothing }: {
+export function BrainControls({ brain, foldSize, smoothing, loading, canRebuild, grown, onBuiltIn, onUpload, onFoldSize, onSmoothing }: {
   brain: BrainInfo | null
   foldSize: FoldSize
   smoothing: Smoothing
   loading: boolean
   // False after reopening a project made from an upload: the original STL is no longer here to rebuild from.
   canRebuild: boolean
+  // The brain has grown, so Fold size keeps its shape and timeline instead of rebuilding.
+  grown: boolean
   onBuiltIn: () => void
   onUpload: () => void
   onFoldSize: (size: FoldSize) => void
@@ -18,6 +21,7 @@ export function BrainControls({ brain, foldSize, smoothing, loading, canRebuild,
   const uploaded = Boolean(brain && !brain.builtin)
   const locked = uploaded && !canRebuild
   const lockedTip = 'Upload the STL again to rebuild it. The original file is not saved in the project.'
+  const carriesOn = grown || locked
   return <>
     <div className="button-row">
       <button type="button" disabled={loading} onClick={onBuiltIn}
@@ -25,10 +29,11 @@ export function BrainControls({ brain, foldSize, smoothing, loading, canRebuild,
       <button type="button" disabled={loading} onClick={onUpload}
         data-tip="Load a closed shape from an STL. Brain mode rebuilds it as one smooth, closed surface, then grows it like a brain.">{loading ? 'Preparing…' : 'Upload STL'}</button>
     </div>
-    <div className="group-field"><span id="fold-size-label" data-tip="How big the folds grow. It sets how finely the starting shape is meshed.">Fold size</span>
+    <div className="group-field"><span id="fold-size-label" data-tip="How big the folds grow. Change it any time: once the brain has grown, it keeps its folds and grows on at the new size.">Fold size</span>
       <div className="button-row three" role="group" aria-labelledby="fold-size-label">
-        {FOLD_ORDER.map(size => <button key={size} type="button" aria-pressed={foldSize === size} disabled={loading || locked}
-          data-tip={locked ? lockedTip : `${FOLD_SIZES[size].tip} Rebuilds the starting shape.`} onClick={() => onFoldSize(size)}>{FOLD_SIZES[size].label}</button>)}
+        {FOLD_ORDER.map(size => <button key={size} type="button" aria-pressed={foldSize === size} disabled={loading}
+          data-tip={`${FOLD_SIZES[size].tip} ${carriesOn ? 'The brain keeps its folds and grows on at this size.' : 'Rebuilds the starting shape.'}`}
+          onClick={() => onFoldSize(size)}>{FOLD_SIZES[size].label}</button>)}
       </div>
     </div>
     {uploaded && <div className="group-field"><span id="smoothing-label" data-tip="How much the uploaded shape is smoothed before it grows.">Smoothing</span>

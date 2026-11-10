@@ -39,6 +39,18 @@ Fold size sets how finely the starting shape is meshed, and the split length dur
 | Medium | 0.055 (the reel) | 0.09 |
 | Broad | 0.065 | 0.11 |
 
+### Changing Fold size while it grows
+
+Before the brain grows, Fold size rebuilds the starting shape at its spacing, since there's nothing to lose. Once it has grown, including when you look back at an earlier step, Fold size keeps the shape and the timeline and changes only how growth carries on:
+
+- The split length becomes the new size's, so later splits make the mesh finer or let it stay coarser, and new folds follow it. The folds already grown stay.
+- The vertex limit scales with (starting size's split / new split)², so Fine has room for its smaller triangles. A broader size keeps the limit it had, so growth isn't stopped at the vertices already there. It's saved with the project's settings as `budgetScale`.
+- If growth had stopped at Stop at, the stop moves 140 steps on, so Play growth carries on.
+- Playing from an earlier step branches from there at the chosen size, as with any setting.
+- Reset goes back to a smooth brain meshed for the current size: the built-in brain at that spacing, or the upload rebuilt. A project reopened from an upload no longer has the STL, so it resets to its starting shape.
+
+Switching mid-growth doesn't give exactly the brain a fresh start at that size would: the folds that formed before the switch keep their size. Going finer adds smaller folds on and between them.
+
 ## Uploading in brain mode
 
 1. Read the STL, centre it and turn it Y-up. Scale it so its bounding sphere matches the built-in brain's, so the recipe gives the same fold size. Its own millimeters are kept for display and export.
