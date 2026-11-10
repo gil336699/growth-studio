@@ -2,6 +2,12 @@
 
 ## 0.9.1 2026-11-10
 
+- **Fold size keeps growing.** Once a brain has grown, Fine, Medium or Broad no longer rebuild it from the smooth brain. The brain keeps its folds and its timeline, and grows on at the new size from that step, even while it's playing. Before growth, Fold size still rebuilds the starting shape, since there's nothing to lose.
+  - If growth had stopped at Stop at, the stop moves 140 steps on, so Play growth carries on. The status line says so.
+  - A finer size raises the vertex limit to match, so Fine has room for its smaller triangles.
+  - From an earlier step on the timeline, the new size applies when you play from there.
+  - Reset goes back to a smooth brain at the current size.
+  - A saved project reopens at the size it was growing at.
 - **Brain mode says when an upload is too thin for it.** Brain mode rebuilds an STL on a grid as fine as its folds, and walls thinner than that don't survive. Before, a planter with 1.5 mm walls quietly became a 33 mm lump, and a 1.5 mm keychain tag came apart into 3 pieces.
   - The rebuild is now checked against the STL, by volume, size and pieces.
   - A shape that mostly disappears is refused with its wall thickness. The message suggests Light smoothing or Fine folds only if they really keep it, and Sheet mode with the Brain folds preset otherwise, which keeps the walls as they are.
@@ -11,12 +17,6 @@
 - **Flat base.** For a closed shape, File › Export mesh has **Flat base**, which cuts the outer layer flat at the bottom so a print stands on the bed without supports under it. **Base cut** sets how much comes off, 5 mm by default. The base is part of the watertight solid. Before, the folded brain touched the bed over 0.09 cm².
 - **One piece to print.** The outer layer is one solid with no hidden cavities. Its smoothing used to close the mouths of narrow grooves and seal their insides as bubbles: the folded brain exported with 3, and a folded keychain tag with 25. Slicers print a bubble as a hidden hollow, or report it as another body. Exports stay watertight, and the uploads' rebuilds get the same fix.
 - **Progress while growing.** The status line says "Growing · step 254 of 420" while it grows toward Stop at. Before, a brain showed "Contact corrected last step" for its whole run, since its folds touch in nearly every step. Contact in each step is still in Stats and the Contact overlay.
-- **Fold size keeps growing.** Once a brain has grown, Fine, Medium or Broad no longer rebuild it from the smooth brain. The brain keeps its folds and its timeline, and grows on at the new size from that step, even while it's playing. Before growth, Fold size still rebuilds the starting shape, since there's nothing to lose.
-  - If growth had stopped at Stop at, the stop moves 140 steps on, so Play growth carries on. The status line says so.
-  - A finer size raises the vertex limit to match, so Fine has room for its smaller triangles.
-  - From an earlier step on the timeline, the new size applies when you play from there.
-  - Reset goes back to a smooth brain at the current size.
-  - A saved project reopens at the size it was growing at.
 - **Space presses a button reached with Tab.** Before, Space always played or stopped growth, so a keyboard user couldn't press the focused button with it. After a mouse click, Space still plays or stops.
 - On phones, a long status message wraps onto a second line. Before, it widened the playback panel past the screen and hid the Phases button and the snapshot interval.
 - Switch rows, such as Add thickness, Flat base and Show in 3D view, are 40 px tall on touch screens. Before, they were 23 px.
