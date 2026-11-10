@@ -1,5 +1,25 @@
 # Growth Studio Changelog
 
+## 0.9.0 2026-11-10
+
+- **Brain mode.** A **Sheet / Brain** switch in the Starting surface card. Brain mode grows a closed shape the way a brain folds:
+  - the whole surface grows over a soft core, so it buckles into folds instead of inflating;
+  - an outer layer rounds the ridges and closes the grooves.
+
+  Start from the **built-in brain**, the shape from the Instagram reel, and press Play growth. It stops at step 420 with the reel's folds.
+- **Upload STL in brain mode** rebuilds your STL as one smooth, closed shape at the chosen fold size, then grows it the same way. **Smoothing** (Light, Medium, Strong) sets how much it's smoothed first; Strong turns an already folded brain scan back into a smooth one. An open surface, such as a vase, is refused with a pointer to Sheet mode.
+- **Fold size** (Fine, Medium, Broad) rebuilds the brain more finely or more coarsely, for more, smaller folds or fewer, wider ones.
+- **Outer layer for closed shapes.** On a closed shape, Add thickness now fills the inside and adds a layer around the surface, merged where folds touch, so Export writes one watertight solid in millimeters.
+  - It's built in the background when growth pauses, in a few seconds for a folded brain.
+  - While growing, the view shows a quick preview.
+  - Before, a closed shape could only export as it was.
+- **Core** in Simulation, for any model. **Core firmness** holds the surface to a soft core under it; **Core growth** lets the core grow along with the surface. Off by default, so older projects open and grow as before.
+- **Whole surface** growth layer, and a **Brain folds** preset that sets it up with the core on any shape.
+- Brain models are smooth-shaded instead of showing STL facets.
+- **Explore variants** can vary Core firmness. On a model with no rim it varies Bend stiffness, instead of growing four identical copies with a rim width that does nothing.
+- Segmented buttons, such as Linear / Compounding and Wall side, are 40 px tall on touch screens. Before, they stayed 26 px.
+- The built-in brain is based on "Brain Model" by Nevit Dilmen on NIH 3D, licensed CC BY 4.0. The credit is in the app, the README and `src/assets/brain/CREDITS.md`.
+
 ## 0.8.4 2026-11-09
 
 - The lamp moves with the camera, so the model stays white and shaded from every side. Before, the lamp was fixed in the scene, and after orbiting halfway around, the side in view was lit only by ambient light and looked flat grey: 152 of 255 instead of 241. The view you start with looks the same as before.

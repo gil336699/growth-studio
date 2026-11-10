@@ -956,8 +956,9 @@ export function App() {
           {input && <>
             <label data-tip="Move the exported mesh to the origin instead of keeping its position from the STL."><span>Center exported mesh <input type="checkbox" checked={centerExport}
               onChange={event => { setCenterExport(event.currentTarget.checked); setExportStatus('') }} /></span></label>
-            <p className="hint">{input.sourceCenter ? 'Exports keep the STL coordinates unless you center the mesh.'
-              : 'This project predates coordinate preservation. Reimport the original STL to use its coordinates.'}</p>
+            <p className="hint">{input.brain?.builtin ? 'The built-in brain has no file coordinates of its own. Center it to put it on the origin.'
+              : input.sourceCenter ? 'Exports keep the STL coordinates unless you center the mesh.'
+                : 'This project predates coordinate preservation. Reimport the original STL to use its coordinates.'}</p>
           </>}
           <label data-tip={canThicken ? 'Give the sheet a wall and close its open rims, so Export writes a solid ready for slicing.'
             : 'Fill the shape and give it an outer layer, merged where folds touch, so Export writes one clean solid.'}><span>Add thickness <input type="checkbox" checked={thickness.on}

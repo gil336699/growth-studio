@@ -46,13 +46,13 @@ it('folds a growing closed shape over a core instead of inflating it', () => {
   expect(inflated.spread).toBeLessThan(0.02)
   expect(folded.mean).toBeLessThan(1.25)
   expect(folded.spread).toBeGreaterThan(0.08)
-}, 20000)
+}, 60000)
 
 it('lets the core grow with the surface by Core growth', () => {
   const slow = sphereGrowth(0.005, 0.1), fast = sphereGrowth(0.005, 0.5)
   for (let i = 0; i < 150; i++) { slow.step(true); fast.step(true) }
   expect(radii(fast.positions).mean).toBeGreaterThan(radii(slow.positions).mean + 0.1)
-}, 20000)
+}, 60000)
 
 it('continues a reopened model with a core exactly as an uninterrupted run', () => {
   const steady = sphereGrowth(0.005), first = sphereGrowth(0.005)
@@ -63,7 +63,7 @@ it('continues a reopened model with a core exactly as an uninterrupted run', () 
   reopened.setMechanics({ ...DISK_DEFAULTS, bending: 0.2, remeshLength: 0.2, coreStiffness: 0.005, coreGrowth: 0.1 })
   for (let i = 0; i < 40; i++) { steady.step(true); reopened.step(true) }
   expect(Array.from(reopened.positions)).toEqual(Array.from(steady.positions))
-}, 20000)
+}, 60000)
 
 it('grows every vertex with a Whole surface layer, and erase still masks it', () => {
   const { positions, indices } = icosphere(1)

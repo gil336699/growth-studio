@@ -2,7 +2,7 @@
 
 Brain mode grows a closed shape the way a brain folds. Its whole surface grows over a soft core, so the extra surface buckles into folds. A thick outer layer then rounds the ridges and closes the grooves. You can start from the built-in brain, which is the shape behind the Instagram reel, or upload your own STL.
 
-It's based on Tallinen et al., "On the growth and form of cortical convolutions" (*Nature Physics* 12, 2016), and on the tests in this repository's brain-folding notes. It's a look-alike, not the paper's solid model. See the limits below.
+It's based on Tallinen et al., "On the growth and form of cortical convolutions" (*Nature Physics* 12, 2016), and on the brain-folding tests behind the Instagram reel. It's a look-alike, not the paper's solid model. See the limits below.
 
 ## Where it lives
 
@@ -41,7 +41,7 @@ Fold size sets how finely the starting shape is meshed, and the split length dur
 
 ## Uploading in brain mode
 
-1. Read the STL, centre it and turn it Y-up. Scale it so its bounding sphere matches the built-in brain's, so the recipe gives the same fold size. Its own millimetres are kept for display and export.
+1. Read the STL, centre it and turn it Y-up. Scale it so its bounding sphere matches the built-in brain's, so the recipe gives the same fold size. Its own millimeters are kept for display and export.
 2. Rebuild it as a smooth, closed surface on a voxel grid:
    - mark the surface and measure the distance to it;
    - fill the outside from the grid's edge, through a small closing radius, so small holes don't leak;
@@ -66,17 +66,18 @@ In every solver pass, each vertex moves a share of the way toward its anchor:
 
 The solid is everything within h of the grown surface, or inside it. Its outer face is built on a voxel grid:
 
-1. Sample the triangles into the grid.
-2. Run a Euclidean distance transform (Felzenszwalb–Huttenlocher).
-3. Flood-fill the outside.
-4. Build a signed field and blur it twice.
-5. Extract the surface with surface nets and apply Taubin smoothing.
+1. Sample the triangles a quarter voxel apart. Each voxel the surface passes through keeps the sample nearest its center, and two raster sweeps carry those points outward. Distances are measured to the surface itself, not to voxel centers, so smooth areas stay smooth. Around a sphere, the face's normals tilt 0.8° RMS from radial, against 1.8° when measured to voxel centers, which showed as rings.
+2. Flood-fill the outside through voxels farther than h from the surface. Walls closer together than 2h merge.
+3. Build a signed field and blur it twice. The blur rounds the ridges and fills crevices narrower than about two voxels, which is the look of the reel's model. It also pulls the face in by about a third of a voxel, so the layer is built that much thicker.
+4. Join pinches. Where four voxels around an edge alternate inside and outside, surface nets would share one edge among four faces. The outside corner nearest the surface moves just inside.
+5. Extract the surface with surface nets, and split any vertex where two parts of the surface meet at a point.
+6. Smooth with Taubin smoothing.
 
-Touching walls merge, so the result is watertight with no crossings. A test checks that every edge is used exactly twice. On a folded brain at 0.0125 voxels it takes about 2 s, in a worker.
+Tests check that every edge is used exactly once in each direction. Welding vertices by position, as an STL reader does, keeps them that way. On the reel's folded brain the layer has about 590,000 triangles, all edges shared by two faces, and takes about 4 seconds in Node; in the app it runs in a worker.
 
 ## Credits
 
-The built-in brain is based on "Brain Model" by Nevit Dilmen, NIH 3D (3DPX-002739), licensed CC BY 4.0. It was smoothed, the cerebellum and brainstem were removed, and the halves were joined. The credit appears in the app, the README and `src/assets/brain-cerebrum.CREDITS.md`.
+The built-in brain is based on "Brain Model" by Nevit Dilmen, NIH 3D (3DPX-002739), licensed CC BY 4.0. It was smoothed, the cerebellum and brainstem were removed, and the halves were joined. The credit appears in the app, the README and `src/assets/brain/CREDITS.md`.
 
 ## Limits
 

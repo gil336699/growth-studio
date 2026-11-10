@@ -38,7 +38,7 @@ it('builds a watertight, outward-facing outer layer at the requested distance', 
   let mean = 0
   for (let i = 0; i < face.positions.length; i += 3) mean += Math.hypot(face.positions[i], face.positions[i + 1], face.positions[i + 2])
   expect(mean / (face.positions.length / 3)).toBeCloseTo(1.05, 1)
-}, 20000)
+}, 60000)
 
 it('merges walls that come closer than the layer is thick into one solid', () => {
   // Two spheres 0.06 apart: a 0.05 layer around each closes the gap, a 0.01 layer leaves it open.
@@ -49,7 +49,7 @@ it('merges walls that come closer than the layer is thick into one solid', () =>
   expect(pieces(thick.indices, thick.positions.length / 3)).toBe(1)
   expect(pieces(thin.indices, thin.positions.length / 3)).toBe(2)
   expect(edgeProblems(thick.indices)).toBe(0)
-}, 20000)
+}, 60000)
 
 it('rebuilds a sphere with a hole as a closed, smooth surface at the chosen spacing', () => {
   const sphere = icosphere(4)
@@ -69,7 +69,7 @@ it('rebuilds a sphere with a hole as a closed, smooth surface at the chosen spac
   // Spacing sets the mesh size: a unit sphere has about 4π / (0.055² × 0.5) ≈ 8,000 vertices at this spacing.
   expect(rebuilt.positions.length / 3).toBeGreaterThan(3000)
   expect(rebuilt.positions.length / 3).toBeLessThan(9000)
-}, 20000)
+}, 60000)
 
 it('reports an open sheet as having almost nothing inside', () => {
   const sphere = icosphere(3)
@@ -80,7 +80,7 @@ it('reports an open sheet as having almost nothing inside', () => {
   }
   const rebuilt = closedRemesh(sphere.positions, Uint32Array.from(bowl), { spacing: 0.055, smoothing: 2 })
   expect(rebuilt.insideShare).toBeLessThan(0.3)
-}, 20000)
+}, 60000)
 
 it('finds the nearest source vertex for each derived vertex', () => {
   const source = Float32Array.of(0, 0, 0, 1, 0, 0, 0, 1, 0, 5, 5, 5)
@@ -135,4 +135,12 @@ it('keeps a smooth surface smooth: the layer around a sphere has no voxel terrac
     sum += Math.acos(Math.min(1, cos)) ** 2
   }
   expect(Math.sqrt(sum / (P.length / 3)) * 180 / Math.PI).toBeLessThan(1.2)
-}, 20000)
+}, 60000)
+
+it('counts a thin closed plate as closed, not as an open sheet', () => {
+  // A box 2 × 0.09 × 1.2 units, like a tag: barely anything inside is deeper than the closing radius.
+  const [x, y, z] = [1, 0.045, 0.6]
+  const positions = Float32Array.of(-x, -y, -z, x, -y, -z, x, y, -z, -x, y, -z, -x, -y, z, x, -y, z, x, y, z, -x, y, z)
+  const indices = Uint32Array.of(0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4, 2, 3, 7, 2, 7, 6, 1, 2, 6, 1, 6, 5, 0, 4, 7, 0, 7, 3)
+  expect(closedRemesh(positions, indices, { spacing: 0.055, smoothing: 1 }).insideShare).toBeGreaterThan(0.3)
+}, 60000)

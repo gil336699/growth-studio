@@ -343,7 +343,8 @@ export function outerFace(P: ArrayLike<number>, I: ArrayLike<number>, options: {
 
 // Rebuilds a surface as one smooth, closed shape on a grid with the given spacing. Gaps narrower than about a spacing
 // are sealed, the shape is smoothed by `smoothing` blur passes, and the result is outward-facing. insideShare is the
-// filled volume as a share of the volume near the surface: an open sheet, such as a vase, has almost nothing inside.
+// filled volume as a share of the volume near the surface: an open sheet, such as a vase, has nothing inside once the
+// outside has grown back to it, while even a thin closed plate keeps its thickness.
 export function closedRemesh(P: ArrayLike<number>, I: ArrayLike<number>, { spacing, smoothing }: { spacing: number; smoothing: number }) {
   // Work at half the output spacing, then sample every other voxel for the output.
   const v = spacing / 2
@@ -365,7 +366,8 @@ export function closedRemesh(P: ArrayLike<number>, I: ArrayLike<number>, { spaci
     const outside = G[q] <= closeV2 + 1e-6
     const d = Math.sqrt(D[q]) * v
     F[q] = outside ? d : -d
-    if (!outside && d > close) inside++
+    // Count all of the inside: a thin closed plate has little deeper than the closing radius, an open sheet none at all.
+    if (!outside) inside++
     if (d <= close) near++
   }
   for (let pass = 0; pass < smoothing; pass++) blur3(F, nx, ny, nz)
