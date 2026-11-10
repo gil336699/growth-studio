@@ -24,13 +24,22 @@ function makeGrid(P: ArrayLike<number>, v: number, pad: number): Grid {
   return { nx, ny, nz, origin, v }
 }
 
-// Squared distance, in voxels, from every voxel to the nearest voxel the surface passes through.
+// Squared distance, in voxels, from every voxel to the surface. Each voxel the surface passes through keeps the exact
+// sample point nearest its center, and two raster sweeps carry those points outward, so the distances keep their
+// sub-voxel accuracy. Measuring to voxel centers instead left steps a voxel apart, which showed as rings and bumps
+// on gently curved, smooth surfaces.
 function surfaceDistance(P: ArrayLike<number>, I: ArrayLike<number>, grid: Grid) {
   const { nx, ny, nz, origin, v } = grid
-  const D = new Float32Array(nx * ny * nz).fill(1e20)
+  const N = nx * ny * nz
+  const D = new Float32Array(N).fill(Infinity)
+  // The nearest surface point found so far for each voxel, in voxel coordinates.
+  const S = new Float32Array(N * 3)
   const mark = (x: number, y: number, z: number) => {
-    const i = Math.round((x - origin[0]) / v), j = Math.round((y - origin[1]) / v), k = Math.round((z - origin[2]) / v)
-    D[i + nx * (j + ny * k)] = 0
+    const fx = (x - origin[0]) / v, fy = (y - origin[1]) / v, fz = (z - origin[2]) / v
+    const i = Math.round(fx), j = Math.round(fy), k = Math.round(fz)
+    const q = i + nx * (j + ny * k)
+    const d = (fx - i) ** 2 + (fy - j) ** 2 + (fz - k) ** 2
+    if (d < D[q]) { D[q] = d; S[q * 3] = fx; S[q * 3 + 1] = fy; S[q * 3 + 2] = fz }
   }
   for (let f = 0; f < I.length; f += 3) {
     const a = I[f] * 3, b = I[f + 1] * 3, c = I[f + 2] * 3
@@ -38,14 +47,37 @@ function surfaceDistance(P: ArrayLike<number>, I: ArrayLike<number>, grid: Grid)
       Math.hypot(P[b] - P[a], P[b + 1] - P[a + 1], P[b + 2] - P[a + 2]),
       Math.hypot(P[c] - P[a], P[c + 1] - P[a + 1], P[c + 2] - P[a + 2]),
       Math.hypot(P[c] - P[b], P[c + 1] - P[b + 1], P[c + 2] - P[b + 2]))
-    // Samples half a voxel apart, so no voxel the triangle passes through is missed.
-    const n = Math.max(1, Math.ceil(longest / (0.5 * v)))
+    // Samples a quarter voxel apart, so each voxel's nearest point is close to the true nearest point.
+    const n = Math.max(1, Math.ceil(longest / (0.25 * v)))
     for (let s = 0; s <= n; s++) for (let t = 0; t <= n - s; t++) {
       const u = s / n, w = t / n, r = 1 - u - w
       mark(r * P[a] + u * P[b] + w * P[c], r * P[a + 1] + u * P[b + 1] + w * P[c + 1], r * P[a + 2] + u * P[b + 2] + w * P[c + 2])
     }
   }
-  edt3(D, nx, ny, nz)
+  // The 13 neighbors before a voxel in raster order; the backward sweep uses the other 13.
+  const steps: [number, number, number][] = []
+  for (let dk = -1; dk <= 1; dk++) for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++)
+    if (dk < 0 || (dk === 0 && (dj < 0 || (dj === 0 && di < 0)))) steps.push([di, dj, dk])
+  const sweep = (sign: 1 | -1) => {
+    const delta = Int32Array.from(steps, ([di, dj, dk]) => sign * (di + nx * (dj + ny * dk)))
+    // The grid's outer layer is skipped, so neighbors never fall off it; it is far from any surface.
+    for (let kk = 1; kk < nz - 1; kk++) for (let jj = 1; jj < ny - 1; jj++) for (let ii = 1; ii < nx - 1; ii++) {
+      const i = sign > 0 ? ii : nx - 1 - ii, j = sign > 0 ? jj : ny - 1 - jj, k = sign > 0 ? kk : nz - 1 - kk
+      const q = i + nx * (j + ny * k)
+      let best = D[q]
+      for (let o = 0; o < delta.length; o++) {
+        const m = q + delta[o]
+        if (D[m] === Infinity) continue
+        const sx = S[m * 3] - i, sy = S[m * 3 + 1] - j, sz = S[m * 3 + 2] - k
+        const d = sx * sx + sy * sy + sz * sz
+        if (d < best) { best = d; D[q] = d; S[q * 3] = S[m * 3]; S[q * 3 + 1] = S[m * 3 + 1]; S[q * 3 + 2] = S[m * 3 + 2] }
+      }
+    }
+  }
+  sweep(1)
+  sweep(-1)
+  // Anything still unreached is far: as far as the old transform's cap.
+  for (let q = 0; q < N; q++) if (D[q] === Infinity) D[q] = 1e12
   return D
 }
 
@@ -288,7 +320,11 @@ export function outerVoxel(P: ArrayLike<number>, h: number) {
 
 // The outer face of everything inside the closed surface (P, I) or within h of it. Walls closer than 2h merge.
 export function outerFace(P: ArrayLike<number>, I: ArrayLike<number>, options: { h: number; v?: number; blur?: number; smooth?: number }): MeshData {
-  const h = Math.max(0, options.h), { v = outerVoxel(P, h), blur = 2, smooth = 12 } = options
+  const { v = outerVoxel(P, Math.max(0, options.h)), blur = 2, smooth = 12 } = options
+  // The blur rounds the ridges and fills crevices narrower than about two voxels, which gives the layer its soft look,
+  // but on a field measured to the surface it also pulls the face in by about a third of a voxel. Building the layer
+  // that much thicker puts the face where it was asked for: 1.020 for 0.02 around a unit sphere.
+  const h = Math.max(0, options.h) + (blur ? 0.35 * v : 0)
   if (!(v > 0)) throw new Error('The voxel spacing must be positive.')
   const grid = makeGrid(P, v, h + 4 * v)
   const { nx, ny, nz } = grid, N = nx * ny * nz

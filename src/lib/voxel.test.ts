@@ -117,3 +117,22 @@ it('joins two walls that pinch along a line, so no edge is shared by four faces'
   expect(joinPinches(F, n, n, n)).toBeGreaterThan(0)
   expect(edgeProblems(surfaceNets(F, grid).indices)).toBe(0)
 })
+
+it('keeps a smooth surface smooth: the layer around a sphere has no voxel terraces', () => {
+  // Measured to voxel centers, the layer's normals tilted 1.8° RMS from radial in rings a voxel apart; measured to the
+  // surface itself they tilt under 1°.
+  const sphere = icosphere(5)
+  const face = outerFace(sphere.positions, sphere.indices, { h: 0.02 })
+  const P = face.positions, I = face.indices, N = new Float64Array(P.length)
+  for (let f = 0; f < I.length; f += 3) {
+    const a = I[f] * 3, b = I[f + 1] * 3, c = I[f + 2] * 3
+    const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2], vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2]
+    for (const o of [a, b, c]) { N[o] += uy * vz - uz * vy; N[o + 1] += uz * vx - ux * vz; N[o + 2] += ux * vy - uy * vx }
+  }
+  let sum = 0
+  for (let i = 0; i < P.length; i += 3) {
+    const cos = (N[i] * P[i] + N[i + 1] * P[i + 1] + N[i + 2] * P[i + 2]) / (Math.hypot(N[i], N[i + 1], N[i + 2]) * Math.hypot(P[i], P[i + 1], P[i + 2]))
+    sum += Math.acos(Math.min(1, cos)) ** 2
+  }
+  expect(Math.sqrt(sum / (P.length / 3)) * 180 / Math.PI).toBeLessThan(1.2)
+}, 20000)

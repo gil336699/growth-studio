@@ -221,7 +221,7 @@ details[open] > summary::after { transform: rotate(45deg); }
 /* The Sheet / Brain switch shares a row with the card's label. */
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 2px; }
 .button-row.mode-switch { grid-template-columns: auto auto; margin-top: 0; }
-.button-row.mode-switch button { min-height: 24px; padding: 0 12px; font-size: 12px; }
+.button-row.mode-switch button { min-height: 26px; padding: 0 12px; font-size: 12px; }
 .model-card .group-field { margin-top: 10px; }
 .hint.credit a { color: inherit; text-decoration: underline; }
 .overlap-warning { margin-top: 10px; padding: 10px 12px; border-radius: var(--r-group); background: color-mix(in srgb, var(--orange) 16%, transparent); font-size: 12px; line-height: 1.4; }
@@ -429,7 +429,7 @@ kbd { display: inline-block; padding: 1px 7px; border-radius: 6px; background: v
 @media (pointer: coarse) {
   button, .transport button, .phases-toggle, .timeline-controls button { min-height: 44px; }
   .icon-button, .transport button:has(.compact-label) { width: 44px; min-width: 44px; }
-  .floating-bar button, .tab-list [role='tab'] { min-height: 40px; }
+  .floating-bar button, .tab-list [role='tab'], .button-row[role='group'] button, .button-row.mode-switch button { min-height: 40px; }
   select, .number-input { min-height: 40px; }
 }
 
