@@ -13,11 +13,12 @@ export type BrushSettings = { radius: number; strength: number; hardness: number
 export type Phase = { mode: 'grow' | 'relax'; steps: number }
 export type StopAt = { kind: 'none' | 'size' | 'step' | 'strain'; value: number }
 // Wall for printing, in millimeters. size is the default disk's longest side; an STL keeps its own millimeters.
-export type Thickness = { on: boolean; wall: number; side: WallSide; rim: RimProfile; size: number; show: boolean }
+// flatBase and baseCut cut a closed shape's outer layer flat at the bottom, baseCut mm up, so it sits on a print bed.
+export type Thickness = { on: boolean; wall: number; side: WallSide; rim: RimProfile; size: number; show: boolean; flatBase: boolean; baseCut: number }
 
 export const BRUSH_DEFAULTS: BrushSettings = { radius: 0.15, strength: 1, hardness: 0, symmetry: 'off', copies: 6 }
 export const STOP_DEFAULTS: StopAt = { kind: 'none', value: 2 }
-export const THICKNESS_DEFAULTS: Thickness = { on: false, wall: 1.2, side: 'both', rim: 'round', size: 100, show: true }
+export const THICKNESS_DEFAULTS: Thickness = { on: false, wall: 1.2, side: 'both', rim: 'round', size: 100, show: true, flatBase: false, baseCut: 5 }
 
 type ProjectSource = Omit<GrowthStlSource, 'positions' | 'indices'> & { positions: number[]; indices: number[] }
 export type DiskProject = {
@@ -87,6 +88,9 @@ const validThickness = (thickness: Thickness) => typeof thickness === 'object' &
   // Projects from 0.7.0 have no side and open with the wall on both sides.
   && (thickness.side === undefined || (typeof thickness.side === 'string' && Object.hasOwn(WALL_SHIFT, thickness.side)))
   && finite(thickness.size, 1, 10_000) && typeof thickness.show === 'boolean'
+  // Projects from before 0.9.1 have no flat base.
+  && (thickness.flatBase === undefined || typeof thickness.flatBase === 'boolean')
+  && (thickness.baseCut === undefined || finite(thickness.baseCut, 0.1, 1000))
 
 export function deserializeDiskProject(json: string) {
   const project = JSON.parse(json) as DiskProject & { schema: unknown; version: unknown }

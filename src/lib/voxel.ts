@@ -130,6 +130,17 @@ function floodOutside(nx: number, ny: number, nz: number, open: (q: number) => b
   return out
 }
 
+// Positive voxels the outside can't reach are bubbles sealed inside the solid. A blur makes them by closing the mouth of
+// a narrow groove; left in, each becomes a hidden inner shell that a slicer prints as a cavity or reports as another
+// body (a folded brain had 3, a folded keychain tag 25). Filling them leaves one outer surface. Returns how many voxels
+// were filled.
+export function fillCavities(F: Float32Array, nx: number, ny: number, nz: number) {
+  const reached = floodOutside(nx, ny, nz, q => F[q] > 0)
+  let filled = 0
+  for (let q = 0; q < F.length; q++) if (F[q] > 0 && !reached[q]) { F[q] = -F[q]; filled++ }
+  return filled
+}
+
 // Separable [1 4 6 4 1] / 16 blur along x, y and z.
 export function blur3(F: Float32Array, nx: number, ny: number, nz: number) {
   const m = Math.max(nx, ny, nz), line = new Float32Array(m), w = [1 / 16, 4 / 16, 6 / 16, 4 / 16, 1 / 16]
@@ -319,7 +330,8 @@ export function outerVoxel(P: ArrayLike<number>, h: number) {
 }
 
 // The outer face of everything inside the closed surface (P, I) or within h of it. Walls closer than 2h merge.
-export function outerFace(P: ArrayLike<number>, I: ArrayLike<number>, options: { h: number; v?: number; blur?: number; smooth?: number }): MeshData {
+// cut gives the solid a flat base: everything up to `cut` above the layer's lowest point, along y (up), is cut away.
+export function outerFace(P: ArrayLike<number>, I: ArrayLike<number>, options: { h: number; v?: number; blur?: number; smooth?: number; cut?: number }): MeshData {
   const { v = outerVoxel(P, Math.max(0, options.h)), blur = 2, smooth = 12 } = options
   // The blur rounds the ridges and fills crevices narrower than about two voxels, which gives the layer its soft look,
   // but on a field measured to the surface it also pulls the face in by about a third of a voxel. Building the layer
@@ -335,9 +347,24 @@ export function outerFace(P: ArrayLike<number>, I: ArrayLike<number>, options: {
   for (let q = 0; q < N; q++) { const d = Math.sqrt(D[q]) * v - h; F[q] = out[q] ? d : (d < 0 ? d : -v) }
   // The distances are measured to voxel centers, and that rounding shows as bumps without a little blur.
   for (let pass = 0; pass < blur; pass++) blur3(F, nx, ny, nz)
+  // The flat base intersects the solid with the half-space above a floor, after the blur so the cut stays crisp. The
+  // floor's field is exact on the grid, so surface nets put the base's vertices exactly on it.
+  let floor = -Infinity
+  if (options.cut && options.cut > 0) {
+    let lowest = Infinity
+    for (let i = 1; i < P.length; i += 3) lowest = Math.min(lowest, P[i])
+    floor = lowest - Math.max(0, options.h) + options.cut
+    for (let k = 0; k < nz; k++) for (let j = 0; j < ny; j++) {
+      const below = floor - (grid.origin[1] + j * v)
+      for (let i = 0, q = nx * (j + ny * k); i < nx; i++, q++) if (below > F[q]) F[q] = below
+    }
+  }
+  fillCavities(F, nx, ny, nz)
   joinPinches(F, nx, ny, nz)
   const face = makeManifold(surfaceNets(F, grid))
   if (smooth) face.positions = taubin(face.positions, meshNeighbors(face.indices, face.positions.length / 3), smooth)
+  // Smoothing rounds the base's edge and can dip it a hair below the floor: keep the base flat.
+  if (floor > -Infinity) for (let i = 1; i < face.positions.length; i += 3) if (face.positions[i] < floor) face.positions[i] = floor
   return face
 }
 
@@ -376,6 +403,7 @@ export function closedRemesh(P: ArrayLike<number>, I: ArrayLike<number>, { spaci
   const S = new Float32Array(mx * my * mz)
   for (let k = 0; k < mz; k++) for (let j = 0; j < my; j++) for (let i = 0; i < mx; i++)
     S[i + mx * (j + my * k)] = F[Math.min(nx - 1, 2 * i) + nx * (Math.min(ny - 1, 2 * j) + ny * Math.min(nz - 1, 2 * k))]
+  fillCavities(S, mx, my, mz)
   joinPinches(S, mx, my, mz)
   const mesh = makeManifold(surfaceNets(S, { nx: mx, ny: my, nz: mz, origin: grid.origin, v: spacing }))
   mesh.positions = taubin(mesh.positions, meshNeighbors(mesh.indices, mesh.positions.length / 3), 4)

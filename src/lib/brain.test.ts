@@ -4,7 +4,8 @@ import { expect, it } from 'vitest'
 import { createGrowingDisk, DISK_DEFAULTS } from '../physics/growingDisk'
 import {
   BRAIN_LENGTH_MM, BRAIN_RADIUS, BRAIN_START_EDGE, brainErase, brainFromStl, brainLayers, brainMechanics,
-  builtInBrainSource, decodeBrainMesh, FOLD_ORDER, FOLD_SIZES, foldMechanics, foldSizeOf, OpenShapeError, type FoldSize,
+  builtInBrainSource, decodeBrainMesh, FOLD_ORDER, FOLD_SIZES, foldMechanics, foldSizeOf, OpenShapeError, rebuildNote, ThinShapeError,
+  type FoldSize,
 } from './brain'
 import { deserializeDiskProject, serializeDiskProject } from './diskProject'
 import { edgeProblems, signedVolume } from './voxel'
@@ -100,6 +101,33 @@ it('grows a brain on at another fold size from where it is, with room for the fi
   expect(fine.rejectedSteps).toBeLessThan(5)
 }, 60000)
 
+// A binary STL of a closed box, x × y × z mm, such as a thin plate.
+function boxStl(x: number, y: number, z: number) {
+  const p = [[0, 0, 0], [x, 0, 0], [x, y, 0], [0, y, 0], [0, 0, z], [x, 0, z], [x, y, z], [0, y, z]]
+  const faces = [[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]]
+  const buffer = new ArrayBuffer(84 + faces.length * 50), view = new DataView(buffer)
+  view.setUint32(80, faces.length, true)
+  faces.forEach((face, f) => face.forEach((vertex, k) => p[vertex].forEach((c, a) => view.setFloat32(84 + f * 50 + 12 + k * 12 + a * 4, c, true))))
+  return buffer
+}
+
+it('says when an upload is too thin for brain mode, and what the rebuild lost', () => {
+  // A 0.8 mm plate disappears in the rebuild: refused as too thin, not as an open surface, naming its thickness.
+  expect(() => brainFromStl(boxStl(60, 40, 0.8), 'plate.stl', 'medium', 'medium')).toThrow(ThinShapeError)
+  // No gentler setting keeps it, so the message suggests only Sheet mode.
+  expect(() => brainFromStl(boxStl(60, 40, 0.8), 'plate.stl', 'medium', 'medium')).toThrow(/about 0\.8 mm thick.*kept almost nothing\. Use Sheet mode with the Brain folds preset/)
+  // A 4 mm plate vanishes at Strong, but Light smoothing keeps it, at Medium or at Fine folds: both are suggested.
+  expect(() => brainFromStl(boxStl(60, 40, 4), 'plate.stl', 'medium', 'strong')).toThrow(/Try Light smoothing, or Fine folds with Light smoothing, or use Sheet mode/)
+  // A 4 mm plate keeps its shape at Light smoothing, and loses part of it at Medium, which says Light keeps more.
+  const light = brainFromStl(boxStl(60, 40, 4), 'plate.stl', 'medium', 'light').check
+  expect(rebuildNote(light, 'medium', 'light')).toBe('')
+  const medium = brainFromStl(boxStl(60, 40, 4), 'plate.stl', 'medium', 'medium').check
+  expect(medium.kept).toBeLessThan(0.75)
+  expect(rebuildNote(medium, 'medium', 'medium')).toMatch(/^The rebuild kept \d+% of the shape: .* Light smoothing keeps more of it\.$/)
+  // Breaking into more pieces than the STL has is reported too.
+  expect(rebuildNote({ ...light, pieces: 3 }, 'medium', 'light')).toMatch(/in 3 pieces/)
+}, 30000)
+
 // A binary STL of a closed, Z-up shape: an octahedron stretched 40 × 30 × 20 mm, or its upper half as an open sheet.
 function octahedronStl(open = false) {
   const p = [[20, 0, 0], [-20, 0, 0], [0, 15, 0], [0, -15, 0], [0, 0, 10], [0, 0, -10]]
@@ -111,7 +139,11 @@ function octahedronStl(open = false) {
 }
 
 it('rebuilds an uploaded STL as a closed brain-sized shape that keeps its millimeters', () => {
-  const source = brainFromStl(octahedronStl(), 'diamond.stl', 'medium', 'light')
+  const { source, check } = brainFromStl(octahedronStl(), 'diamond.stl', 'medium', 'light')
+  // Nothing was lost, so there's nothing to say.
+  expect(check.pieces).toBe(1)
+  expect(check.kept).toBeGreaterThan(0.75)
+  expect(rebuildNote(check, 'medium', 'light')).toBe('')
   expect(edgeProblems(source.indices)).toBe(0)
   expect(signedVolume(source.positions, source.indices)).toBeGreaterThan(0)
   // Scaled to the built-in brain's size; the rebuild rounds off the sharp tips a little.

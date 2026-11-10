@@ -434,6 +434,8 @@ kbd { display: inline-block; padding: 1px 7px; border-radius: 6px; background: v
   .icon-button, .transport button:has(.compact-label) { width: 44px; min-width: 44px; }
   .floating-bar button, .tab-list [role='tab'], .button-row[role='group'] button, .button-row.mode-switch button { min-height: 40px; }
   select, .number-input { min-height: 40px; }
+  /* A switch row is tapped anywhere along it, so the row is the target. */
+  label > span:has(> input[type='checkbox']) { min-height: 40px; }
 }
 
 /* On the narrowest phones the gesture hint would take two lines over the model; the field key stays. */

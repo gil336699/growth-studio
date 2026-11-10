@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { closedRemesh, edgeProblems, joinPinches, makeManifold, nearestOrigins, outerFace, outerVoxel, signedVolume, surfaceNets } from './voxel'
+import { closedRemesh, edgeProblems, fillCavities, joinPinches, makeManifold, nearestOrigins, outerFace, outerVoxel, signedVolume, surfaceNets } from './voxel'
 
 function icosphere(levels: number, radius = 1, center = [0, 0, 0]) {
   const t = (1 + Math.sqrt(5)) / 2
@@ -39,6 +39,44 @@ it('builds a watertight, outward-facing outer layer at the requested distance', 
   for (let i = 0; i < face.positions.length; i += 3) mean += Math.hypot(face.positions[i], face.positions[i + 1], face.positions[i + 2])
   expect(mean / (face.positions.length / 3)).toBeCloseTo(1.05, 1)
 }, 60000)
+
+it('cuts a flat base: the bottom is one plane at the cut, and the solid stays watertight', () => {
+  const sphere = icosphere(3)
+  const h = 0.05, cut = 0.3
+  const face = outerFace(sphere.positions, sphere.indices, { h, cut })
+  expect(edgeProblems(face.indices)).toBe(0)
+  // The layer's lowest point was at y = -1.05, so the base is at -0.75: a disk about 0.73 across in radius.
+  const floor = -1 - h + cut, P = face.positions
+  let low = Infinity, area = 0
+  for (let i = 1; i < P.length; i += 3) low = Math.min(low, P[i])
+  for (let f = 0; f < face.indices.length; f += 3) {
+    const [a, b, c] = [0, 1, 2].map(k => face.indices[f + k] * 3)
+    if (![a, b, c].every(v => Math.abs(P[v + 1] - floor) < 1e-5)) continue
+    area += Math.abs((P[b] - P[a]) * (P[c + 2] - P[a + 2]) - (P[c] - P[a]) * (P[b + 2] - P[a + 2])) / 2
+  }
+  expect(low).toBeCloseTo(floor, 5)
+  // Smoothing rounds the base's edge a little, so a bit less than the full disk lies flat.
+  expect(area).toBeGreaterThan(0.75 * Math.PI * (1.05 ** 2 - 0.75 ** 2))
+  expect(area).toBeLessThan(Math.PI * (1.05 ** 2 - 0.75 ** 2))
+  // The cut takes off a cap of the sphere and nothing else.
+  const whole = signedVolume(outerFace(sphere.positions, sphere.indices, { h }).positions, outerFace(sphere.positions, sphere.indices, { h }).indices)
+  const capVolume = Math.PI * cut ** 2 * (3 * 1.05 - cut) / 3
+  expect(signedVolume(P, face.indices)).toBeCloseTo(whole - capVolume, 1)
+}, 60000)
+
+it('fills a bubble sealed inside the solid, and leaves the outside and open pockets alone', () => {
+  // A 12³ grid: a solid block with a sealed bubble in it, and a pocket open to the outside along +x.
+  const n = 12, F = new Float32Array(n ** 3).fill(1)
+  const at = (i: number, j: number, k: number) => i + n * (j + n * k)
+  for (let k = 2; k < 10; k++) for (let j = 2; j < 10; j++) for (let i = 2; i < 10; i++) F[at(i, j, k)] = -1
+  F[at(4, 4, 4)] = F[at(5, 4, 4)] = 0.5
+  for (let i = 7; i < 10; i++) F[at(i, 7, 7)] = 0.5
+  expect(fillCavities(F, n, n, n)).toBe(2)
+  expect(F[at(4, 4, 4)]).toBeLessThan(0)
+  expect(F[at(5, 4, 4)]).toBeLessThan(0)
+  expect(F[at(8, 7, 7)]).toBeGreaterThan(0)
+  expect(F[at(0, 0, 0)]).toBeGreaterThan(0)
+})
 
 it('merges walls that come closer than the layer is thick into one solid', () => {
   // Two spheres 0.06 apart: a 0.05 layer around each closes the gap, a 0.01 layer leaves it open.

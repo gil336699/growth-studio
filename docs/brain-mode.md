@@ -11,7 +11,7 @@ It's based on Tallinen et al., "On the growth and form of cortical convolutions"
 | Starting surface card | A **Sheet / Brain** switch. In Brain mode the card offers **Built-in brain** and **Upload STL**, **Fold size** (Fine, Medium, Broad), **Smoothing** for uploads, and the brain shape's credit. |
 | Growth field | A **Whole surface** layer, for any model. |
 | Simulation | A **Core** section, for any model: **Core firmness** and **Core growth**. |
-| File › Export mesh | On a closed shape, **Add thickness** builds an **outer layer**: everything inside the surface plus a wall around it, merged where folds touch. It's watertight, shown while growth is paused, and exported in mm. |
+| File › Export mesh | On a closed shape, **Add thickness** builds an **outer layer**: everything inside the surface plus a wall around it, merged where folds touch. It's watertight, shown while growth is paused, and exported in mm. **Flat base** cuts it flat at the bottom, **Base cut** mm up, for printing. |
 | Explore › Presets | **Brain folds**: whole-surface growth over a core, for any model. |
 | 3D view | Brain models are smooth-shaded. While growing, the outer layer is previewed by pushing the surface out along its normals. When growth pauses, the exact layer replaces the preview. |
 
@@ -63,6 +63,20 @@ Switching mid-growth doesn't give exactly the brain a fresh start at that size w
 
 An open surface, such as a vase, has no inside to fill. Brain mode says so and suggests Sheet mode with the Brain folds preset.
 
+The grid is as fine as the folds, so walls thinner than about a fold's width don't survive the rebuild. The rebuild is compared with the STL:
+- **Mostly gone:** under 25% of the volume kept, or a side under 60% of its length. The upload is refused with the STL's mean wall thickness (2 × volume / area). Light smoothing and Fine folds are suggested only after a trial rebuild at them keeps the shape. Sheet mode with the Brain folds preset is always offered, since it uses the mesh as it is.
+- **Partly gone:** under 75% of the volume kept, or more pieces than the STL has. The shape loads with a note: how much was kept, and the gentler setting that keeps more.
+
+Measured on real files:
+
+| STL | Fine, Light | Medium, Light | Medium, Medium | Broad, Light |
+| --- | --- | --- | --- | --- |
+| NIH MRI brain, 250k triangles | 106%, 1 piece | 106%, 1 piece | 102%, 1 piece | 105%, 1 piece |
+| Keychain tag, 1.5 mm thick | 90%, 1 piece | 84%, 1 piece | 18%, refused | 66%, note |
+| Planter, 1.5 mm walls, 120 mm | 21%, refused | 11%, refused | 3%, refused | 40% and 11% of its height, refused |
+
+Light is the default smoothing for uploads for this reason.
+
 ## Physics: the core
 
 In every solver pass, each vertex moves a share of the way toward its anchor:
@@ -81,11 +95,13 @@ The solid is everything within h of the grown surface, or inside it. Its outer f
 1. Sample the triangles a quarter voxel apart. Each voxel the surface passes through keeps the sample nearest its center, and two raster sweeps carry those points outward. Distances are measured to the surface itself, not to voxel centers, so smooth areas stay smooth. Around a sphere, the face's normals tilt 0.8° RMS from radial, against 1.8° when measured to voxel centers, which showed as rings.
 2. Flood-fill the outside through voxels farther than h from the surface. Walls closer together than 2h merge.
 3. Build a signed field and blur it twice. The blur rounds the ridges and fills crevices narrower than about two voxels, which is the look of the reel's model. It also pulls the face in by about a third of a voxel, so the layer is built that much thicker.
-4. Join pinches. Where four voxels around an edge alternate inside and outside, surface nets would share one edge among four faces. The outside corner nearest the surface moves just inside.
-5. Extract the surface with surface nets, and split any vertex where two parts of the surface meet at a point.
-6. Smooth with Taubin smoothing.
+   - With **Flat base**, the field is then intersected with the half-space above a floor, the layer's lowest point plus Base cut. That field is linear in y, so surface nets put the base's vertices exactly on the floor. Smoothing only rounds the base's edge, and any vertex it dips below the floor goes back onto it.
+4. Fill cavities. The blur can close a narrow groove's mouth and seal its inside as a bubble. A second flood from the outside fills any pocket it can't reach, so the solid has one outer surface. A folded brain had 3 bubbles and a folded keychain tag 25, each an inner shell that a slicer prints as a hidden hollow. The upload rebuild fills them the same way.
+5. Join pinches. Where four voxels around an edge alternate inside and outside, surface nets would share one edge among four faces. The outside corner nearest the surface moves just inside.
+6. Extract the surface with surface nets, and split any vertex where two parts of the surface meet at a point.
+7. Smooth with Taubin smoothing.
 
-Tests check that every edge is used exactly once in each direction. Welding vertices by position, as an STL reader does, keeps them that way. On the reel's folded brain the layer has about 590,000 triangles, all edges shared by two faces, and takes about 4 seconds in Node; in the app it runs in a worker.
+Tests check that every edge is used exactly once in each direction, and the export QA checks that a folded brain and a folded tag come out as one piece. Welding vertices by position, as an STL reader does, keeps them that way. On the reel's folded brain the layer has about 590,000 triangles, all edges shared by two faces, and takes about 4 seconds in Node; in the app it runs in a worker.
 
 ## Credits
 

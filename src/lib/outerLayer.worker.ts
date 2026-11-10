@@ -2,12 +2,13 @@
 // vertex also gets the nearest sheet vertex, so the layer can show the sheet's overlay colors.
 import { nearestOrigins, outerFace } from './voxel'
 
-export type OuterLayerRequest = { id: number; positions: Float32Array; indices: Uint32Array; h: number }
+// cut: the flat base's height above the layer's lowest point, in model units; 0 for none.
+export type OuterLayerRequest = { id: number; positions: Float32Array; indices: Uint32Array; h: number; cut: number }
 export type OuterLayerResult = { id: number; positions: Float32Array; indices: Uint32Array; origin: Uint32Array } | { id: number; error: string }
 
 self.onmessage = ({ data }: MessageEvent<OuterLayerRequest>) => {
   try {
-    const face = outerFace(data.positions, data.indices, { h: data.h })
+    const face = outerFace(data.positions, data.indices, { h: data.h, cut: data.cut })
     // A cell about the sheet's edge length keeps the nearest-vertex search to a cell or two.
     let length = 0, samples = 0
     for (let f = 0; f < data.indices.length && samples < 2000; f += 3 * Math.max(1, Math.floor(data.indices.length / 6000)), samples++) {

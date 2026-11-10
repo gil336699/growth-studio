@@ -31,7 +31,7 @@ import { growthExportPositions, readGrowthStl, type GrowthStlSource } from './ph
 import { MAX_TRIANGLES, SLOW_TRIANGLES, stlTriangleCount } from './lib/stl'
 import {
   BRAIN_CONTINUE, BRAIN_LAYER, BRAIN_START_EDGE, BRAIN_STOP, brainErase, brainFromStl, brainLayers, brainMechanics, FOLD_SIZES,
-  foldMechanics, foldSizeOf, loadBuiltInBrain, OpenShapeError, SMOOTHING, type FoldSize, type Smoothing,
+  foldMechanics, foldSizeOf, loadBuiltInBrain, OpenShapeError, rebuildNote, SMOOTHING, type FoldSize, type Smoothing,
 } from './lib/brain'
 import { useOuterLayer } from './lib/useOuterLayer'
 
@@ -138,7 +138,10 @@ export function App() {
   // Sheet mode grows open surfaces from their rims; brain mode grows a closed shape's whole surface over a core.
   const [mode, setMode] = useState<'sheet' | 'brain'>('sheet')
   const [brainFold, setBrainFold] = useState<FoldSize>('medium')
-  const [brainSmoothing, setBrainSmoothing] = useState<Smoothing>('medium')
+  // Light by default: a designer's CAD part keeps its thin walls. Strong is there for a scan that's already folded.
+  const [brainSmoothing, setBrainSmoothing] = useState<Smoothing>('light')
+  // What an upload's rebuild lost, if anything, shown in the Starting surface card while that shape is loaded.
+  const [rebuildMessage, setRebuildMessage] = useState<{ source: GrowthStlSource; text: string } | null>(null)
   // The last STL uploaded in brain mode, so Fold size and Smoothing can rebuild it. Projects don't keep it.
   const [brainUpload, setBrainUpload] = useState<{ buffer: ArrayBuffer; name: string } | null>(null)
   const [coreOpen, setCoreOpen] = useState(false)
@@ -209,7 +212,17 @@ export function App() {
   const closedLayer = thickness.on && !canThicken && Boolean(input)
   const layerOffset = input ? thickness.wall / 2 / input.scale : 0
   // The hook waits for the slider to rest and drops builds that are out of date, so the offset needn't be deferred.
-  const outer = useOuterLayer(closedLayer && !active, disk, `${sessionId(disk)}:${disk.geometryRevision}`, layerOffset)
+  // The flat base's range follows the starting shape's height: up to a quarter of it, and 5 mm unless that's too much.
+  const startHeight = useMemo(() => {
+    if (!input) return 0
+    let low = Infinity, high = -Infinity
+    for (let i = 1; i < input.positions.length; i += 3) { low = Math.min(low, input.positions[i]); high = Math.max(high, input.positions[i]) }
+    return (high - low) * input.scale
+  }, [input])
+  const baseRange: [number, number] = [0.5, Math.max(1, Math.round(0.25 * startHeight * 2) / 2)]
+  const baseCut = Math.min(baseRange[1], Math.max(baseRange[0], thickness.baseCut))
+  const outer = useOuterLayer(closedLayer && !active, disk, `${sessionId(disk)}:${disk.geometryRevision}`, layerOffset,
+    closedLayer && thickness.flatBase && input ? baseCut / input.scale : 0)
   const showLayer = closedLayer && thickness.show
   const layerRange: [number, number] = input ? [Math.max(0.1, Math.round(0.004 * input.scale * 10) / 10), Math.max(1, Math.round(0.12 * input.scale * 10) / 10)] : [0.1, 5]
   // A change to the solid makes the last export's message out of date.
@@ -272,7 +285,12 @@ export function App() {
       setLoading(true)
       try {
         if (!input.brain.builtin) await new Promise(resolve => setTimeout(resolve, 30))
-        source = input.brain.builtin ? await loadBuiltInBrain(brainFold) : brainFromStl(brainUpload!.buffer, brainUpload!.name, brainFold, brainSmoothing)
+        if (input.brain.builtin) source = await loadBuiltInBrain(brainFold)
+        else {
+          const built = brainFromStl(brainUpload!.buffer, brainUpload!.name, brainFold, brainSmoothing)
+          source = built.source
+          setRebuildMessage({ source: built.source, text: rebuildNote(built.check, brainFold, brainSmoothing) })
+        }
         settings = { ...mechanics, budgetScale: 1 }
         setInput(source)
         setMechanics(settings)
@@ -405,8 +423,10 @@ export function App() {
       }
       // Rebuilding takes a moment; let Preparing… show first.
       await new Promise(resolve => setTimeout(resolve, 30))
-      startBrain(brainFromStl(upload.buffer, upload.name, size, smoothing))
+      const { source, check } = brainFromStl(upload.buffer, upload.name, size, smoothing)
+      startBrain(source)
       setBrainUpload(upload)
+      setRebuildMessage({ source, text: rebuildNote(check, size, smoothing) })
     } catch (error) {
       const reason = error instanceof OpenShapeError || error instanceof Error ? error.message : 'It could not be prepared.'
       setImportError(`Couldn't use ${upload.name}. ${reason} Your current model is unchanged.`)
@@ -729,10 +749,14 @@ export function App() {
   const slowed = !relaxing && disk.growthThrottle < 0.995
   const phaseMode = phaseIndex !== null ? phases[phaseIndex]?.mode : null
   // While paused, a stop message explains why playback ended; contact status shows otherwise.
-  const playbackStatus = loading ? 'Loading…' : stopping ? 'Stopping…' : !active && notice ? notice : contactStatus || (active
-    ? (phaseMode ? `Phase ${phaseIndex! + 1}: ${phaseMode === 'relax' ? 'relaxing' : 'growing'}`
-      : relaxing ? 'Relaxing' : slowed ? `Growing at ${Math.round(disk.growthThrottle * 100)}% (contact)` : 'Growing')
-    : notice || (!disk.canGrow ? (rims.length ? 'No growth field. Turn on a layer or paint' : 'No open rims. Paint growth or add a layer') : 'Paused'))
+  // While playing, the status says what's happening and how far it is to Stop at. Contact in each step shows in Stats and
+  // the Contact overlay; a brain's folds touch in nearly every step, so it used to hide the progress for the whole run.
+  const activity = phaseMode ? `Phase ${phaseIndex! + 1}: ${phaseMode === 'relax' ? 'relaxing' : 'growing'}`
+    : relaxing ? 'Relaxing' : slowed ? `Growing at ${Math.round(disk.growthThrottle * 100)}% (contact)` : 'Growing'
+  const toStop = !relaxing && phaseMode !== 'relax' && stopAt.kind === 'step' && stopAt.value > step ? ` · step ${step} of ${stopAt.value}` : ''
+  const playbackStatus = loading ? 'Loading…' : stopping ? 'Stopping…' : !active && notice ? notice
+    : active ? (disk.initialOverlap ? contactStatus : `${activity}${toStop}`)
+      : contactStatus || notice || (!disk.canGrow ? (rims.length ? 'No growth field. Turn on a layer or paint' : 'No open rims. Paint growth or add a layer') : 'Paused')
   // Touch screens get gesture wording; mice get button and wheel wording.
   const caption = touchScreen
     ? (tool === 'point' ? 'Tap the model to place the point' : tool === 'line' ? 'Tap to add line points'
@@ -758,7 +782,7 @@ export function App() {
       : 'Go back to the starting surface and clear the timeline and paint. Your layers and settings stay.'}
       onClick={() => guard('Reset to the starting surface?', 'Reset', () => void reset())}><Icon name="reset" /><span className="compact-label">Reset</span></button>
   </div>
-  const status = <span className="playback-status" role="status" data-warning={Boolean(disk.initialOverlap || disk.stepStatus === 'contact' || detailLimit)}>
+  const status = <span className="playback-status" role="status" data-warning={Boolean(disk.initialOverlap || (!active && disk.stepStatus === 'contact') || detailLimit)}>
     {playbackStatus}{detailLimit && <><span aria-hidden="true"> · </span>Mesh detail limit</>}
   </span>
 
@@ -810,6 +834,7 @@ export function App() {
           <button disabled={loading || !input} data-tip={input ? 'Go back to the flat default disk.' : 'You are already using the default disk.'} onClick={() => guard('Switch to the default disk?', 'Discard and switch', switchToDefaultDisk)}>Default disk</button>
         </div>}
         {importError && <p className="hint" role="alert">{importError}</p>}
+        {rebuildMessage?.source === input && rebuildMessage.text && <div className="overlap-warning rebuild-note" role="status"><p>{rebuildMessage.text}</p></div>}
         {/* About dense uploads; a brain's triangles come from growth, which this advice can't reduce. */}
         {!input?.brain && disk.indices.length / 3 > SLOW_TRIANGLES && <div className="overlap-warning" role="status">
           <p>{(disk.indices.length / 3).toLocaleString()} triangles: each step can take seconds. The view stays responsive, but the shape changes slowly. For interactive growth, reduce below {SLOW_TRIANGLES.toLocaleString()} (Fusion: Mesh › Reduce).</p>
@@ -1025,11 +1050,15 @@ export function App() {
               min={layerRange[0]} max={layerRange[1]} step={0.1}
               title="The layer around the grown surface, half of it outside. Thicker rounds the folds and closes the grooves. A real brain's cortex is 2.5 to 3 mm."
               onChange={wall => changeThickness({ wall })} />
+            <label data-tip="Cut the bottom flat, so a print sits on the bed without supports under it."><span>Flat base <input type="checkbox" checked={thickness.flatBase}
+              onChange={event => changeThickness({ flatBase: event.currentTarget.checked })} /></span></label>
+            {thickness.flatBase && <Slider label="Base cut" value={baseCut} display={`${baseCut.toFixed(1)} mm`} min={baseRange[0]} max={baseRange[1]} step={0.5}
+              title="How much is cut off the bottom. A deeper cut gives a wider base to stand on." onChange={cut => changeThickness({ baseCut: cut })} />}
             <label data-tip="Show the outer layer in the 3D view. While growing, a quick preview shows instead."><span>Show in 3D view <input type="checkbox" checked={thickness.show}
               onChange={event => { const show = event.currentTarget.checked; setThickness(current => ({ ...current, show })) }} /></span></label>
             <p className="hint" role="status">{active ? 'The outer layer is built when growth pauses. Meanwhile the view shows a quick preview.'
               : outer.error ? outer.error
-                : outer.solid ? `Closed solid, ${(outer.solid.indices.length / 3).toLocaleString()} triangles. Folds that touch are merged.`
+                : outer.solid ? `Closed solid, ${(outer.solid.indices.length / 3).toLocaleString()} triangles. Folds that touch are merged.${thickness.flatBase ? ` The bottom ${baseCut.toFixed(1)} mm is cut flat.` : ''}`
                   : 'Building the outer layer…'}</p>
           </>}
           {solidOn && <>

@@ -68,9 +68,9 @@ Brain mode grows a closed shape the way a brain folds. The whole surface grows o
 | Setting | Effect |
 | --- | --- |
 | Built-in brain | Loads the built-in brain again. |
-| Upload STL | Loads your own closed shape. Brain mode rebuilds it as one smooth, closed surface, scaled so the recipe gives the same fold size, and keeps its millimeters. An open surface, such as a vase, is refused; use Sheet mode and the Brain folds preset instead. |
+| Upload STL | Loads your own closed shape. Brain mode rebuilds it as one smooth, closed surface, scaled so the recipe gives the same fold size, and keeps its millimeters. Walls thinner than the rebuild's grid, about the fold size, don't survive it. A shape that mostly disappears is refused with what to try, and one that loses part of itself loads with a note saying how much was kept. An open surface, such as a vase, is refused. For both, Sheet mode with the Brain folds preset keeps the mesh as it is. |
 | Fold size | **Fine**, **Medium** or **Broad**: more, smaller folds, or fewer, wider ones. Medium is the reel. Before growth, it rebuilds the starting shape at a finer or coarser mesh. Once the brain has grown, it keeps its folds and the timeline, and grows on at the new size from that step. If growth had stopped at Stop at, the stop moves 140 steps on. Reset goes back to a smooth brain at the current size. |
-| Smoothing | For an upload: **Light** keeps it close to the STL, **Medium** rounds off small bumps, and **Strong** smooths an already folded brain scan back into a smooth one. |
+| Smoothing | For an upload: **Light**, the default, keeps it close to the STL and its thin walls; **Medium** rounds off small bumps; **Strong** smooths an already folded brain scan back into a smooth one. |
 
 Brain mode sets everything else from the reel's recipe, and each setting can still be changed:
 
@@ -115,7 +115,7 @@ Every layer can start and stop at timeline steps, and intensity keyframes ramp i
 
 Every fold of the grown surface is kept: the wall is offset along the surface, not rebuilt. Where folds come closer together, or bend more tightly, than the wall is thick, the wall passes through itself. The app checks for this after each change and colors those places pink. It also checks that the solid is closed, and says so if the STL pinches to a point or has faces turned inconsistently. Most slicers merge them; for a clean solid, use a thinner wall, or grow with a larger **Repel distance** so folds stay further apart.
 
-On a **closed shape**, such as a brain, Add thickness builds an **outer layer** instead: the inside is filled and a layer of the set thickness wraps the surface, half of it outside. Folds closer together than the layer merge, so Export writes one watertight solid in millimeters, with every edge shared by exactly two faces. The layer is built on a voxel grid in the background each time growth pauses, in a few seconds for a folded brain. While growth runs, the view shows a quick preview: the surface pushed out along its normals.
+On a **closed shape**, such as a brain, Add thickness builds an **outer layer** instead: the inside is filled and a layer of the set thickness wraps the surface, half of it outside. Folds closer together than the layer merge, so Export writes one watertight solid in millimeters, with every edge shared by exactly two faces. The layer is built on a voxel grid in the background each time growth pauses, in a few seconds for a folded brain. While growth runs, the view shows a quick preview: the surface pushed out along its normals. **Flat base** cuts the solid flat at the bottom, **Base cut** mm up (5 mm by default), so a print stands on the bed without supports under it.
 
 ## Controls
 
