@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { closedRemesh, edgeProblems, nearestOrigins, outerFace, signedVolume } from './voxel'
+import { closedRemesh, edgeProblems, joinPinches, makeManifold, nearestOrigins, outerFace, outerVoxel, signedVolume, surfaceNets } from './voxel'
 
 function icosphere(levels: number, radius = 1, center = [0, 0, 0]) {
   const t = (1 + Math.sqrt(5)) / 2
@@ -86,4 +86,34 @@ it('finds the nearest source vertex for each derived vertex', () => {
   const source = Float32Array.of(0, 0, 0, 1, 0, 0, 0, 1, 0, 5, 5, 5)
   const derived = Float32Array.of(0.1, 0, 0, 0.9, 0.05, 0, 0.02, 0.8, 0, 4.2, 4.9, 5.1, -3, -3, -3)
   expect(Array.from(nearestOrigins(derived, source, 0.25))).toEqual([0, 1, 2, 3, 0])
+})
+
+it('finishes with a layer of zero thickness instead of searching for a spacing forever', () => {
+  const sphere = icosphere(2)
+  expect(outerVoxel(sphere.positions, 0)).toBeGreaterThan(0)
+  const face = outerFace(sphere.positions, sphere.indices, { h: 0 })
+  expect(edgeProblems(face.indices)).toBe(0)
+}, 10000)
+
+it('splits a vertex where two parts of the surface meet at a point, so it stays apart even welded by position', () => {
+  // Two closed tetrahedra that share only vertex 0, as surface nets makes where two cones of the surface meet in one cell.
+  const positions = Float32Array.of(0, 0, 0, 1, 0, 0, 0.5, 1, 0.3, 0.5, 0.2, 1, -1, 0, 0, -0.5, -1, 0.3, -0.5, -0.2, -1)
+  const indices = Uint32Array.of(0, 1, 2, 0, 2, 3, 0, 3, 1, 1, 3, 2, 0, 4, 5, 0, 5, 6, 0, 6, 4, 4, 6, 5)
+  const fixed = makeManifold({ positions: positions.slice(), indices })
+  expect(fixed.positions.length).toBe(positions.length + 3)
+  const firstUses = new Set(Array.from(fixed.indices.subarray(0, 12))), secondUses = new Set(Array.from(fixed.indices.subarray(12)))
+  expect([...firstUses].some(v => secondUses.has(v))).toBe(false)
+  const copy = Array.from(fixed.indices.subarray(12)).find(v => v >= 7)!
+  expect(Math.hypot(fixed.positions[0] - fixed.positions[copy * 3], fixed.positions[1] - fixed.positions[copy * 3 + 1], fixed.positions[2] - fixed.positions[copy * 3 + 2])).toBeGreaterThan(0)
+  expect(edgeProblems(fixed.indices)).toBe(0)
+})
+
+it('joins two walls that pinch along a line, so no edge is shared by four faces', () => {
+  // Two columns of inside voxels that touch only along an edge, diagonally: the squares between them alternate signs.
+  const n = 6, F = new Float32Array(n * n * n).fill(1)
+  for (let k = 1; k <= 4; k++) { F[1 + n * (1 + n * k)] = -1; F[2 + n * (2 + n * k)] = -1 }
+  const grid = { nx: n, ny: n, nz: n, origin: [0, 0, 0] as [number, number, number], v: 1 }
+  expect(edgeProblems(surfaceNets(F, grid).indices)).toBeGreaterThan(0)
+  expect(joinPinches(F, n, n, n)).toBeGreaterThan(0)
+  expect(edgeProblems(surfaceNets(F, grid).indices)).toBe(0)
 })

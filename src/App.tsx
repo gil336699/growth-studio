@@ -204,7 +204,8 @@ export function App() {
   // where folds touch. It's built in a worker while growth is paused; while growing, the view previews it.
   const closedLayer = thickness.on && !canThicken && Boolean(input)
   const layerOffset = input ? thickness.wall / 2 / input.scale : 0
-  const outer = useOuterLayer(closedLayer && !active, disk, `${sessionId(disk)}:${disk.geometryRevision}`, useDeferredValue(layerOffset))
+  // The hook waits for the slider to rest and drops builds that are out of date, so the offset needn't be deferred.
+  const outer = useOuterLayer(closedLayer && !active, disk, `${sessionId(disk)}:${disk.geometryRevision}`, layerOffset)
   const showLayer = closedLayer && thickness.show
   const layerRange: [number, number] = input ? [Math.max(0.1, Math.round(0.004 * input.scale * 10) / 10), Math.max(1, Math.round(0.12 * input.scale * 10) / 10)] : [0.1, 5]
   // A change to the solid makes the last export's message out of date.

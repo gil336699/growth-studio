@@ -162,6 +162,87 @@ export function surfaceNets(F: Float32Array, grid: Grid): MeshData {
   return { positions: Float32Array.from(pos), indices: Uint32Array.from(tri) }
 }
 
+// A square of four voxels whose corners alternate inside, outside, inside, outside is ambiguous: surface nets would
+// join four quads along one edge there, where two walls pinch. The outside corner nearest the surface moves just
+// inside, joining the walls along the pinch, as the layer joins walls that touch. Repeats until no square is left.
+export function joinPinches(F: Float32Array, nx: number, ny: number, nz: number, epsilon = 1e-6) {
+  const sx = 1, sy = nx, sz = nx * ny
+  // The two axes of each square, for squares facing x, y and z.
+  const planes: [number, number, number, number, number][] = [
+    [sy, sz, ny - 1, nz - 1, 0], [sx, sz, nx - 1, nz - 1, 1], [sx, sy, nx - 1, ny - 1, 2],
+  ]
+  let joined = 0
+  for (let pass = 0; pass < 16; pass++) {
+    let changed = 0
+    for (const [du, dv] of planes) {
+      for (let k = 0; k < nz; k++) for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+        const q = i * sx + j * sy + k * sz
+        // Skip squares that would run off the grid along either axis.
+        if ((du === sx && i >= nx - 1) || (du === sy && j >= ny - 1) || (dv === sy && j >= ny - 1) || (dv === sz && k >= nz - 1)) continue
+        const a = F[q] < 0, b = F[q + du] < 0, c = F[q + du + dv] < 0, d = F[q + dv] < 0
+        if (a !== c || b !== d || a === b) continue
+        const [p1, p2] = a ? [q + du, q + dv] : [q, q + du + dv]
+        const pick = F[p1] <= F[p2] ? p1 : p2
+        F[pick] = -epsilon
+        changed++
+      }
+    }
+    joined += changed
+    if (!changed) break
+  }
+  return joined
+}
+
+// Surface nets gives each cell one vertex, so two cones of the surface can meet at a single vertex (joinPinches has
+// already removed edges shared by four faces). Each such vertex is split into one copy per fan of faces around it,
+// and the copies are nudged a little toward their own fan, so the surface stays manifold even after an STL reader
+// welds vertices by position.
+export function makeManifold(mesh: MeshData): MeshData {
+  const { positions, indices } = mesh
+  const count = positions.length / 3
+  // Faces around each vertex.
+  const offsets = new Uint32Array(count + 1)
+  for (let i = 0; i < indices.length; i++) offsets[indices[i] + 1]++
+  for (let v = 0; v < count; v++) offsets[v + 1] += offsets[v]
+  const around = new Uint32Array(indices.length), fill = offsets.slice(0, count)
+  for (let i = 0; i < indices.length; i++) around[fill[indices[i]]++] = Math.floor(i / 3)
+  const out = Array.from(indices)
+  const extra: number[] = []
+  let next = count
+  for (let v = 0; v < count; v++) {
+    const faces = Array.from(around.subarray(offsets[v], offsets[v + 1]))
+    if (faces.length < 2) continue
+    // Join faces that share an edge through this vertex. Every edge has two faces by now, so each group is one fan.
+    const parent = faces.map((_, i) => i)
+    const find = (i: number): number => parent[i] === i ? i : (parent[i] = find(parent[i]))
+    const other = (f: number) => [0, 1, 2].map(j => indices[f * 3 + j]).filter(u => u !== v)
+    const corners = faces.map(other)
+    for (let i = 0; i < faces.length; i++) for (let k = i + 1; k < faces.length; k++) {
+      if (corners[i].some(u => corners[k].includes(u))) parent[find(i)] = find(k)
+    }
+    const fans = new Map<number, number[]>()
+    faces.forEach((f, i) => { const r = find(i); fans.set(r, [...(fans.get(r) ?? []), f]) })
+    if (fans.size < 2) continue
+    let first = true
+    for (const fan of fans.values()) {
+      // Toward the middle of the fan's other corners, a twentieth of the way.
+      let cx = 0, cy = 0, cz = 0, n = 0
+      for (const f of fan) for (const u of corners[faces.indexOf(f)]) { cx += positions[u * 3]; cy += positions[u * 3 + 1]; cz += positions[u * 3 + 2]; n++ }
+      const p = [positions[v * 3], positions[v * 3 + 1], positions[v * 3 + 2]]
+      const moved = [p[0] + 0.05 * (cx / n - p[0]), p[1] + 0.05 * (cy / n - p[1]), p[2] + 0.05 * (cz / n - p[2])]
+      const id = first ? v : next++
+      if (first) { positions[v * 3] = moved[0]; positions[v * 3 + 1] = moved[1]; positions[v * 3 + 2] = moved[2] } else extra.push(...moved)
+      if (!first) for (const f of fan) for (let j = 0; j < 3; j++) if (out[f * 3 + j] === v) out[f * 3 + j] = id
+      first = false
+    }
+  }
+  if (!extra.length) return mesh
+  const grown = new Float32Array(positions.length + extra.length)
+  grown.set(positions)
+  grown.set(extra, positions.length)
+  return { positions: grown, indices: Uint32Array.from(out) }
+}
+
 export function meshNeighbors(indices: ArrayLike<number>, count: number) {
   const sets = Array.from({ length: count }, () => new Set<number>())
   for (let f = 0; f < indices.length; f += 3) {
@@ -197,15 +278,18 @@ export function taubin(P: ArrayLike<number>, nb: ReturnType<typeof meshNeighbors
 export function outerVoxel(P: ArrayLike<number>, h: number) {
   const { lo, hi } = bounds(P)
   const span = hi.map((x, a) => x - lo[a])
-  const radius = Math.hypot(...span) / 2
-  let v = Math.min(h / 1.6, radius / 94)
+  const radius = Math.hypot(...span) / 2 || 1
+  // Never finer than a thousandth of the model, so a zero or tiny layer still gets a grid that fits.
+  let v = Math.max(radius / 1000, Math.min(h / 1.6, radius / 94))
   const cells = (spacing: number) => span.reduce((product, s) => product * ((s + 2 * (h + 4 * spacing)) / spacing + 1), 1)
   while (cells(v) > VOXEL_BUDGET) v *= 1.1
   return v
 }
 
 // The outer face of everything inside the closed surface (P, I) or within h of it. Walls closer than 2h merge.
-export function outerFace(P: ArrayLike<number>, I: ArrayLike<number>, { h, v = outerVoxel(P, h), blur = 2, smooth = 12 }: { h: number; v?: number; blur?: number; smooth?: number }): MeshData {
+export function outerFace(P: ArrayLike<number>, I: ArrayLike<number>, options: { h: number; v?: number; blur?: number; smooth?: number }): MeshData {
+  const h = Math.max(0, options.h), { v = outerVoxel(P, h), blur = 2, smooth = 12 } = options
+  if (!(v > 0)) throw new Error('The voxel spacing must be positive.')
   const grid = makeGrid(P, v, h + 4 * v)
   const { nx, ny, nz } = grid, N = nx * ny * nz
   const D = surfaceDistance(P, I, grid)
@@ -215,7 +299,8 @@ export function outerFace(P: ArrayLike<number>, I: ArrayLike<number>, { h, v = o
   for (let q = 0; q < N; q++) { const d = Math.sqrt(D[q]) * v - h; F[q] = out[q] ? d : (d < 0 ? d : -v) }
   // The distances are measured to voxel centers, and that rounding shows as bumps without a little blur.
   for (let pass = 0; pass < blur; pass++) blur3(F, nx, ny, nz)
-  const face = surfaceNets(F, grid)
+  joinPinches(F, nx, ny, nz)
+  const face = makeManifold(surfaceNets(F, grid))
   if (smooth) face.positions = taubin(face.positions, meshNeighbors(face.indices, face.positions.length / 3), smooth)
   return face
 }
@@ -253,7 +338,8 @@ export function closedRemesh(P: ArrayLike<number>, I: ArrayLike<number>, { spaci
   const S = new Float32Array(mx * my * mz)
   for (let k = 0; k < mz; k++) for (let j = 0; j < my; j++) for (let i = 0; i < mx; i++)
     S[i + mx * (j + my * k)] = F[Math.min(nx - 1, 2 * i) + nx * (Math.min(ny - 1, 2 * j) + ny * Math.min(nz - 1, 2 * k))]
-  const mesh = surfaceNets(S, { nx: mx, ny: my, nz: mz, origin: grid.origin, v: spacing })
+  joinPinches(S, mx, my, mz)
+  const mesh = makeManifold(surfaceNets(S, { nx: mx, ny: my, nz: mz, origin: grid.origin, v: spacing }))
   mesh.positions = taubin(mesh.positions, meshNeighbors(mesh.indices, mesh.positions.length / 3), 4)
   return { ...mesh, insideShare: near ? inside / near : 0 }
 }
