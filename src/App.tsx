@@ -25,7 +25,7 @@ import { PRESETS } from './lib/presets'
 import { rangeFill } from './lib/rangeFill'
 import { saveFile, type SaveResult } from './lib/saveFile'
 import { facingSign, printScale, RIM_ROUNDNESS, thicken, WALL_SHIFT, type RimProfile, type Solid, type WallSide } from './lib/thicken'
-import { SMOOTH_MAX_TRIANGLES, smoothPassesFor, smoothSheet, type SmoothLevel } from './lib/smoothSheet'
+import { SHARP_ANGLE, sharpEdges, SMOOTH_MAX_TRIANGLES, smoothPassesFor, smoothSheet, type SmoothLevel } from './lib/smoothSheet'
 import { createGrowingDisk, DISK_DEFAULTS, diskGravityDirection, type BrushMode, type DiskSnapshot, type StrokePoint } from './physics/growingDisk'
 import type { GrowthLayer, Vec3 } from './physics/growthLayers'
 import { growthExportPositions, readGrowthStl, type GrowthStlSource } from './physics/growthStl'
@@ -69,6 +69,13 @@ let sessionCount = 0
 const sessionId = (session: object) => {
   if (!sessionIds.has(session)) sessionIds.set(session, ++sessionCount)
   return sessionIds.get(session)!
+}
+// Sharp edges of a starting shape, found once per mesh: a mesh that splits or is replaced gets new index arrays.
+const creaseCache = new WeakMap<object, Uint32Array>()
+const creasesOf = (referencePositions: Float32Array, indices: Uint32Array) => {
+  let creases = creaseCache.get(indices)
+  if (!creases) { creases = sharpEdges(referencePositions, indices); creaseCache.set(indices, creases) }
+  return creases
 }
 // Keep the newest snapshots; thin out older ones when the list is full.
 const keepSnapshots = (snaps: Snap[]) => snaps.length <= MAX_SNAPSHOTS ? snaps
@@ -188,10 +195,12 @@ export function App() {
   // An STL keeps its own millimeters. The default disk is scaled so the solid itself, wall and rims included, has the
   // chosen longest side; scaling the sheet alone made a 100 mm disk with a 5 mm wall export 105 mm long.
   // Smooth first smooths the sheet (Loop subdivision, see lib/smoothSheet), and the wall follows the smoothed surface.
-  const makeSolid = (wallMm: number, rim: RimProfile, side: WallSide, size: number, smooth: SmoothLevel) => {
+  // Edges that are sharp in the starting shape, such as the edge around a flat bottom, stay sharp unless bevel rounds them.
+  const makeSolid = (wallMm: number, rim: RimProfile, side: WallSide, size: number, smooth: SmoothLevel, bevel: number) => {
     const shift = side === 'both' ? 0 : WALL_SHIFT[side] * facingSign(disk.referencePositions, disk.indices, input ? 'outward' : 'up')
     const passes = smoothPassesFor(smooth, disk.indices.length / 3)
-    const sheet = passes ? smoothSheet(disk.positions, disk.indices, passes) : null
+    const creases = passes && bevel < 1 ? creasesOf(disk.referencePositions, disk.indices) : undefined
+    const sheet = passes ? smoothSheet(disk.positions, disk.indices, passes, { creases, bevel }) : null
     const build = (scale: number) => {
       const made = thicken(sheet ? sheet.positions : disk.positions, sheet ? sheet.indices : disk.indices, wallMm / scale, RIM_ROUNDNESS[rim], 4, shift)
       // Point every solid vertex back to the grown sheet's vertices, so overlay colors carry over, and draw it smooth:
@@ -207,10 +216,16 @@ export function App() {
   // Deferred, so dragging the wall slider stays smooth on a dense mesh.
   const wall = useDeferredValue(thickness.wall), rimProfile = useDeferredValue(thickness.rim)
   const wallSide = useDeferredValue(thickness.side), printSize = useDeferredValue(thickness.size), smoothLevel = useDeferredValue(thickness.smooth)
-  const solid = useMemo(() => solidOn && !active ? makeSolid(wall, rimProfile, wallSide, printSize, smoothLevel).solid : null,
+  const bevelAmount = useDeferredValue(thickness.bevel)
+  const solid = useMemo(() => solidOn && !active ? makeSolid(wall, rimProfile, wallSide, printSize, smoothLevel, bevelAmount).solid : null,
   // Positions change in place; the geometry revision tracks them.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  [solidOn, active, disk, disk.indices, disk.geometryRevision, wall, rimProfile, wallSide, printSize, smoothLevel, input])
+  [solidOn, active, disk, disk.indices, disk.geometryRevision, wall, rimProfile, wallSide, printSize, smoothLevel, bevelAmount, input])
+  // How many mesh edges of the starting shape are sharp enough to keep, for the Bevel control: counted while growth is
+  // paused (the mesh splits often while it grows), and unknown meanwhile. How many smoothing passes really run.
+  const sharpCount = useMemo(() => solidOn && !active ? creasesOf(disk.referencePositions, disk.indices).length / 2 : null,
+    [solidOn, active, disk.referencePositions, disk.indices])
+  const smoothPasses = smoothPassesFor(thickness.smooth, disk.indices.length / 3)
   // Whether the solid is closed and where its wall crosses itself, found in a worker since a dense mesh takes seconds.
   type SolidCheck = { leaks: number; pairs: number; capped: boolean; vertices: number[]; failed?: boolean }
   const [solidCheck, setSolidCheck] = useState<SolidCheck & { solid: Solid } | null>(null)
@@ -521,7 +536,7 @@ export function App() {
     : result === 'downloaded' ? `Download requested for ${filename}. If no file appears, open Growth Studio in Chrome or Safari.`
       : result === 'cancelled' ? 'Save cancelled.' : `Could not save ${filename}.`
   const exportMesh = async (format: 'obj' | 'stl') => {
-    const made = solidOn ? makeSolid(thickness.wall, thickness.rim, thickness.side, thickness.size, thickness.smooth) : null
+    const made = solidOn ? makeSolid(thickness.wall, thickness.rim, thickness.side, thickness.size, thickness.smooth, thickness.bevel) : null
     if (closedLayer && !outer.solid) setExportStatus('Building the outer layer…')
     const layer = closedLayer ? await outer.request() : null
     if (closedLayer && !layer) { setExportStatus("The outer layer couldn't be built, so nothing was exported."); return }
@@ -1121,6 +1136,13 @@ export function App() {
                 })}
               </div>
             </div>
+            <Slider label="Bevel sharp edges" value={thickness.bevel} display={percent(thickness.bevel)} min={0} max={1} step={0.05}
+              disabled={thickness.smooth === 'off' || !smoothPasses || sharpCount === 0}
+              title={thickness.smooth === 'off' ? 'Choose Light or Strong first. Without smoothing, sharp edges stay as they are.'
+                : !smoothPasses ? `This sheet has grown too large to smooth, so its edges stay as they are.`
+                  : sharpCount === 0 ? `This shape has no edges that bend more than ${SHARP_ANGLE}°, so there is nothing to bevel.`
+                    : `${sharpCount === null ? 'Some edges may bend' : `${sharpCount.toLocaleString()} mesh ${sharpCount === 1 ? 'edge bends' : 'edges bend'}`} more than ${SHARP_ANGLE}° in the starting shape, such as the edge around a flat bottom. At 0% they stay sharp, so a print sits flat on the bed. Higher values round them more; 100% is as smooth as the rest of the surface.${sharpCount === null ? ' The count shows when growth pauses.' : ''}`}
+              onChange={bevel => changeThickness({ bevel })} />
             <Slider label="Wall thickness" value={thickness.wall} display={`${thickness.wall.toFixed(1)} mm`} min={0.2} max={5} step={0.1}
               title={`Total wall${input ? ", in the STL's millimeters" : ''}. Most filament printers need at least 0.8 mm, resin printers about 0.5 mm.`}
               onChange={wall => changeThickness({ wall })} />
@@ -1150,7 +1172,8 @@ export function App() {
                 : crossings.pairs ? (disk.initialOverlap || disk.ignoringOverlaps
                   ? `The surface already crosses itself, so the wall does too, in ${crossingCount}${thickness.show ? ', shown in pink' : ''}. Combine the bodies in your CAD tool before printing.`
                   : `The wall crosses itself in ${crossingCount}${thickness.show ? ', shown in pink' : ''}, where folds come closer together, or bend more tightly, than the wall is thick. Most slicers merge these. For a clean solid, use a thinner wall.`)
-                  : `Closed solid with no crossings, ${(solid!.indices.length / 3).toLocaleString()} triangles${thickness.smooth !== 'off' ? `, smoothed ${smoothPassesFor(thickness.smooth, disk.indices.length / 3) === 2 ? 'twice' : 'once'} before the wall` : ''}.`}</p>
+                  : `Closed solid with no crossings, ${(solid!.indices.length / 3).toLocaleString()} triangles${smoothPasses ? `, smoothed ${smoothPasses === 2 ? 'twice' : 'once'} before the wall` : ''}${smoothPasses && sharpCount
+                    ? thickness.bevel <= 0 ? ', sharp edges kept' : thickness.bevel >= 1 ? ', sharp edges rounded' : `, sharp edges beveled ${percent(thickness.bevel)}` : ''}.`}</p>
           </>}
           <div className="button-row">
             <button disabled={active} data-tip={active ? 'Stop the simulation to export.' : solidOn ? 'Save the solid as an OBJ mesh, in millimeters.' : 'Save the current surface as an OBJ mesh.'} onClick={() => void exportMesh('obj')}>Export OBJ</button>

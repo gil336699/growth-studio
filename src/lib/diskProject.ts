@@ -16,12 +16,13 @@ export type Phase = { mode: 'grow' | 'relax'; steps: number }
 export type StopAt = { kind: 'none' | 'size' | 'step' | 'strain'; value: number }
 // Wall for printing, in millimeters. size is the default disk's longest side; an STL keeps its own millimeters.
 // flatBase and baseCut cut a closed shape's outer layer flat at the bottom, baseCut mm up, so it sits on a print bed.
-// smooth smooths an open sheet before its wall is added.
-export type Thickness = { on: boolean; wall: number; side: WallSide; rim: RimProfile; size: number; show: boolean; flatBase: boolean; baseCut: number; smooth: SmoothLevel }
+// smooth smooths an open sheet before its wall is added, and bevel rounds its sharp edges: 0 keeps them sharp, 1 rounds
+// them like the rest of the surface.
+export type Thickness = { on: boolean; wall: number; side: WallSide; rim: RimProfile; size: number; show: boolean; flatBase: boolean; baseCut: number; smooth: SmoothLevel; bevel: number }
 
 export const BRUSH_DEFAULTS: BrushSettings = { radius: 0.15, strength: 1, hardness: 0, symmetry: 'off', copies: 6 }
 export const STOP_DEFAULTS: StopAt = { kind: 'none', value: 2 }
-export const THICKNESS_DEFAULTS: Thickness = { on: false, wall: 1.2, side: 'both', rim: 'round', size: 100, show: true, flatBase: false, baseCut: 5, smooth: 'off' }
+export const THICKNESS_DEFAULTS: Thickness = { on: false, wall: 1.2, side: 'both', rim: 'round', size: 100, show: true, flatBase: false, baseCut: 5, smooth: 'off', bevel: 0 }
 
 type ProjectSource = Omit<GrowthStlSource, 'positions' | 'indices'> & { positions: number[]; indices: number[] }
 export type DiskProject = {
@@ -98,6 +99,8 @@ const validThickness = (thickness: Thickness) => typeof thickness === 'object' &
   && (thickness.baseCut === undefined || finite(thickness.baseCut, 0.1, 1000))
   // Projects from before 0.11.0 have no smoothing and open with it off.
   && (thickness.smooth === undefined || (typeof thickness.smooth === 'string' && Object.hasOwn(SMOOTH_PASSES, thickness.smooth)))
+  // Projects from before 0.12.0 have no bevel; see deserializeDiskProject.
+  && (thickness.bevel === undefined || finite(thickness.bevel, 0, 1))
 
 export function deserializeDiskProject(json: string) {
   const project = JSON.parse(json) as DiskProject & { schema: unknown; version: unknown }
@@ -156,7 +159,12 @@ export function deserializeDiskProject(json: string) {
     stopAt: project.stopAt ?? STOP_DEFAULTS,
     printAngle: project.printAngle ?? PRINT_ANGLE_DEFAULT,
     // Growth Lab's version 1 had no thickness.
-    thickness: legacy ? THICKNESS_DEFAULTS : { ...THICKNESS_DEFAULTS, ...project.thickness },
+    // Projects from before 0.12.0 have no bevel. Those smoothed with 0.11 open at 100%, so they export as they did then;
+    // the rest open with sharp edges kept sharp.
+    thickness: legacy ? THICKNESS_DEFAULTS : {
+      ...THICKNESS_DEFAULTS, ...project.thickness,
+      bevel: project.thickness?.bevel ?? (project.thickness?.smooth && project.thickness.smooth !== 'off' ? 1 : 0),
+    },
     source: source && { ...source, positions: Float32Array.from(source.positions), indices: Uint32Array.from(source.indices) },
   }
 }

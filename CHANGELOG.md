@@ -1,5 +1,17 @@
 # Growth Studio Changelog
 
+## 0.12.0 2026-11-23
+
+- **Smooth surface keeps sharp edges.** Edges that bend more than 40° in the starting shape, such as the edge around a vase base's flat bottom, now stay sharp when you smooth, so a print sits flat on the bed with a crisp bottom edge. Before, smoothing rounded them. On a vase base with a flat bottom 60 mm across, grown with Lettuce edge and given a 1.2 mm wall, the Light-smoothed solid stood on a circle 59 mm across instead of 61 mm.
+  - Folds that grew are smooth in the starting shape, so they smooth as before. The default disk and the weave vase have no edges that sharp, so nothing changes for them.
+  - A very coarse sheet, whose facets bend more than 40°, now keeps them. Raise Bevel to smooth them.
+- **Bevel sharp edges.** A new slider under Smooth surface rounds those edges as much as you like. **0%** keeps them sharp. Higher values round them more, and **100%** rounds them like the rest of the surface, as 0.11 did. Any bevel lifts the bottom edge off the bed a little: the vase base stands on about 59 mm from 50% up.
+  - Its tooltip says how many mesh edges are sharp, and the status line under the solid says whether they're kept, beveled or rounded.
+  - With Smooth surface off, on a sheet too large to smooth, or on a shape with no sharp edges, it's unavailable and says why.
+- Projects save the bevel. Projects saved with 0.11 that use smoothing open at 100%, so they export as before. Lower Bevel to keep their sharp edges.
+- When a sheet has grown too large for the chosen smoothing, the status line no longer says it was smoothed.
+- The browser no longer asks for a missing icon on every load, which showed as an error in its console.
+
 ## 0.11.1 2026-11-23
 
 - **A new README demo shows the print check.** The Collar on the weave vase grows a brim that droops and turns red, and with a 1.2 mm wall it needs support on 3.2% of its surface. **From below** shows where: under the brim and on the round bottom rim. The **Collar, upright** preset grows the same flare to 0.4%, only the bottom rim. Before, the demo showed the Bloom preset and Add thickness from 0.8. It's recorded on 0.11.0 with Smooth surface off, its default. The app itself is unchanged.
