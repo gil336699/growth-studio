@@ -34,6 +34,8 @@ import {
   foldMechanics, foldSizeOf, loadBuiltInBrain, OpenShapeError, rebuildNote, SMOOTHING, type FoldSize, type Smoothing,
 } from './lib/brain'
 import { useOuterLayer } from './lib/useOuterLayer'
+import { usePrintCheck } from './lib/usePrintCheck'
+import { PRINT_ANGLE_DEFAULT } from './lib/printCheck'
 
 type Mechanics = typeof DISK_DEFAULTS
 const MAX_SNAPSHOTS = 80
@@ -79,9 +81,10 @@ function Slider({ label, value, display, min, max, step, title, onChange, disabl
 const QUICK_START_KEY = 'growth-studio:quick-start-dismissed'
 const quickStartDismissed = () => { try { return localStorage.getItem(QUICK_START_KEY) === '1' } catch { return false } }
 
+const OVERLAYS: Overlay[] = ['field', 'growth', 'contact', 'print', 'none']
 const SHORTCUTS: [string, string][] = [
   ['Space', 'Play or stop'], ['.', 'Step'], ['O', 'Orbit'], ['B', 'Paint'], ['E', 'Erase'], ['S', 'Smooth'],
-  ['[ and ]', 'Brush size'], ['⌘Z or Ctrl+Z', 'Undo brush stroke'], ['G', 'Next color overlay'], ['F', 'Frame the model'],
+  ['[ and ]', 'Brush size'], ['⌘Z or Ctrl+Z', 'Undo brush stroke'], ['G', 'Next color overlay'], ['P', 'Print check'], ['F', 'Frame the model'],
   ['1 to 4', 'Mesh view'], ['⌘S or Ctrl+S', 'Save project'], ['Esc', 'Back to orbit'], ['?', 'Show shortcuts'],
 ]
 
@@ -98,6 +101,11 @@ export function App() {
   const [tool, setTool] = useState<Tool>('orbit')
   const [brush, setBrush] = useState<BrushSettings>(BRUSH_DEFAULTS)
   const [overlay, setOverlay] = useState<Overlay>('field')
+  const [printAngle, setPrintAngle] = useState(PRINT_ANGLE_DEFAULT)
+  // Each press turns the 3D view to look at the model from below, where supports go.
+  const [belowKey, setBelowKey] = useState(0)
+  // The color overlay to go back to when P turns the print check off.
+  const beforePrint = useRef<Overlay>('field')
   const [ghost, setGhost] = useState(false)
   const [view, setView] = useState<DiskView>('cells')
   const [previewRim, setPreviewRim] = useState<number | null>(null)
@@ -230,6 +238,24 @@ export function App() {
   const sideName = thickness.side === 'both' ? '' : (WALL_SIDES.find(s => s.side === thickness.side)![input ? 'stl' : 'disk'][0]).toLowerCase()
   const crossingCount = crossings ? `${crossings.capped ? 'more than ' : ''}${crossings.pairs.toLocaleString()} ${crossings.pairs === 1 && !crossings.capped ? 'place' : 'places'}` : ''
   const showSolid = Boolean(solid && thickness.show)
+  // The print check counts the surface the 3D view shows: the solid or the outer layer when it's shown, otherwise the
+  // sheet, read as a wall with two sides when it's open.
+  const shownSolid = showSolid ? solid : showLayer ? outer.solid : null
+  const printSurface = useMemo(() => shownSolid ?? { positions: disk.positions, indices: disk.indices },
+    [shownSolid, disk.positions, disk.indices])
+  const printTwoSided = !shownSolid && canThicken
+  const printResult = usePrintCheck(overlay === 'print', printSurface, `${sessionId(disk)}:${disk.geometryRevision}`, printAngle,
+    printTwoSided, input ? input.scale : null, thickness.size, active)
+  const lowCount = printResult?.lowPoints.length ?? 0
+  const printReadout = !printResult ? 'Counting...' : [
+    `Needs support ${(100 * printResult.needs).toFixed(1)}%`,
+    lowCount ? `${lowCount} low point${lowCount === 1 ? '' : 's'} in the air` : 'No low points in the air',
+    `${(printResult.bed / 100).toFixed(1)} cm² on the bed`,
+  ].join(' · ')
+  const chooseOverlay = (next: Overlay) => {
+    if (next === 'print' && overlay !== 'print') beforePrint.current = overlay
+    setOverlay(next)
+  }
 
   const applyLayers = useCallback((next: GrowthLayer[], target = disk) => {
     target.setLayers(next)
@@ -502,7 +528,7 @@ export function App() {
     const { snapshot } = await disk.requestSnap()
     const json = serializeDiskProject({
       source, disk: snapshot, mechanics, revision: step, centerExport, relaxing, view,
-      speed, batch, importSpeed, importBatch, brush, overlay, ghost, phases, stopAt, thickness,
+      speed, batch, importSpeed, importBatch, brush, overlay, ghost, phases, stopAt, thickness, printAngle,
     })
     const filename = `${snapshotName}.growthstudio.json`
     const saved = { step, edits }
@@ -546,6 +572,7 @@ export function App() {
       setPhases(project.phases)
       setStopAt(project.stopAt)
       setThickness(project.thickness)
+      setPrintAngle(project.printAngle ?? PRINT_ANGLE_DEFAULT)
       setTool('orbit')
       setImportError('')
       setExportStatus('')
@@ -716,7 +743,8 @@ export function App() {
     else if (key === 's' || key === 'S') setTool('smooth')
     else if (key === '[') setBrush(b => ({ ...b, radius: Math.max(0.02, +(b.radius / 1.15).toFixed(3)) }))
     else if (key === ']') setBrush(b => ({ ...b, radius: Math.min(0.6, +(b.radius * 1.15).toFixed(3)) }))
-    else if (key === 'g' || key === 'G') setOverlay(o => (['field', 'growth', 'contact', 'none'] as Overlay[])[(['field', 'growth', 'contact', 'none'].indexOf(o) + 1) % 4])
+    else if (key === 'g' || key === 'G') chooseOverlay(OVERLAYS[(OVERLAYS.indexOf(overlay) + 1) % OVERLAYS.length])
+    else if (key === 'p' || key === 'P') { if (overlay === 'print') setOverlay(beforePrint.current); else chooseOverlay('print') }
     else if (key === 'f' || key === 'F') setCameraKey(k => k + 1)
     else if (['1', '2', '3', '4'].includes(key)) setView((['smooth', 'triangles', 'cells', 'fans'] as DiskView[])[Number(key) - 1])
     else if (key === 'Escape') { setTool('orbit'); setShowHelp(false); setPending(null) }
@@ -790,8 +818,10 @@ export function App() {
     <div className="stage">
       <Viewport disk={disk} tick={tick} view={view} overlay={overlay} ghost={ghost} imported={Boolean(input)} running={running}
         tool={tool} canEdit={!loading} brush={brush} rimEdges={rimEdges} layers={layers} selectedLayerId={selectedLayer?.id ?? null}
-        onStroke={onStroke} onPlace={onPlace} gravityArrow={gravityArrow} cameraKey={cameraKey}
-        solid={showSolid ? solid : showLayer ? outer.solid : null} crossings={showSolid ? crossings?.vertices ?? null : null}
+        onStroke={onStroke} onPlace={onPlace} gravityArrow={gravityArrow} cameraKey={cameraKey} belowKey={belowKey}
+        solid={shownSolid} crossings={showSolid ? crossings?.vertices ?? null : null}
+        print={overlay === 'print' ? { angle: printAngle, low: printResult?.low ?? -Infinity, bedTolerance: printResult?.bedTolerance ?? 0,
+          twoSided: printTwoSided, marks: printResult?.marks ?? [] } : null}
         smooth={Boolean(input?.brain)} offset={showLayer && !outer.solid ? layerOffset : 0} />
     </div>
 
@@ -938,7 +968,8 @@ export function App() {
     <section className="center" aria-label="3D view">
       <ViewportBars tool={tool} brush={brush} canUndo={disk.canUndoBrush} overlay={overlay} view={view} ghost={ghost}
         placing={tool === 'point' ? `Placing ${selectedLayer?.name ?? 'point'}` : tool === 'line' ? `Drawing ${selectedLayer?.name ?? 'line'}` : null}
-        onTool={setTool} onBrush={setBrush} onUndo={undoStroke} onOverlay={setOverlay} onView={setView} onGhost={setGhost}
+        onTool={setTool} onBrush={setBrush} onUndo={undoStroke} onOverlay={chooseOverlay} onView={setView} onGhost={setGhost}
+        printAngle={printAngle} printReadout={printReadout} onPrintAngle={setPrintAngle} onBelow={() => setBelowKey(k => k + 1)}
         onFrame={() => setCameraKey(k => k + 1)} />
       {showQuickStart && <section className="quick-start glass" aria-labelledby="quick-start-title">
         <h2 id="quick-start-title">Quick start</h2>
@@ -953,7 +984,10 @@ export function App() {
       <div className="dock">
         <div className="view-caption">
           <span>{caption}</span>
-          {overlay !== 'none' && <span className={`field-key key-${overlay}`}>
+          {overlay === 'print' && <span className="print-legend" data-tip="Faces that need support at the support angle are red, faces up to 10° steeper are yellow, and faces on the bed are blue. Dark dots are low points hanging in the air, which need a support to start on.">
+            <i className="printable">Printable</i><i className="marginal">Marginal</i><i className="needs">Needs support</i><i className="bed">Touches the bed</i><i className="low">Low point</i>
+          </span>}
+          {overlay !== 'none' && overlay !== 'print' && <span className={`field-key key-${overlay}`}>
             {overlay === 'field' ? 'Growth field' : overlay === 'growth' ? 'Growth so far' : 'Recent contact'}
           </span>}
           {showSolid && <span data-tip="The solid that Export writes. Turn it off under File › Export mesh.">Solid · {thickness.wall} mm wall{sideName && ` ${sideName === 'top' ? 'on top' : sideName === 'bottom' ? 'underneath' : sideName}`}</span>}

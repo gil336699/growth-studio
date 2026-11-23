@@ -299,6 +299,8 @@ dt[data-tip], .bar-segment > span[data-tip] { cursor: help; text-decoration: und
 .floating-bar button[aria-pressed='true'] { background: var(--selected); box-shadow: var(--selected-shadow); font-weight: 600; }
 .bar-divider { width: 1px; align-self: stretch; margin: 6px 4px; background: var(--separator); }
 .floating-bar.brush-bar { gap: 6px 16px; padding: 8px 16px 10px; border-radius: 22px; }
+.floating-bar.print-bar { gap: 6px 16px; padding: 8px 16px 10px; border-radius: 22px; }
+.print-readout { font-size: 12px; color: var(--label-2); }
 .bar-slider { width: 112px; gap: 2px; margin: 0; color: var(--label-2); font-size: 11.5px; }
 .bar-slider b { color: var(--label); }
 .bar-slider input[type='range'] { height: 18px; }
@@ -333,6 +335,16 @@ dt[data-tip], .bar-segment > span[data-tip] { cursor: help; text-decoration: und
 .field-key.key-growth::before { background: #5b4bd6; }
 .field-key.key-contact::before { background: #e0a100; }
 .field-key.key-crossing::before { background: #ff2d95; }
+/* The print check's legend, in the colors of Gil's Parametric Viewer. */
+/* Each item keeps its dot and words on one line. */
+.print-legend i { font-style: normal; white-space: nowrap; margin-left: 10px; }
+.print-legend i:first-child { margin-left: 0; }
+.print-legend i::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 5px; border-radius: 50%; }
+.print-legend .printable::before { background: #4cc38a; }
+.print-legend .marginal::before { background: #f2c23b; }
+.print-legend .needs::before { background: #e6484d; }
+.print-legend .bed::before { background: #5b8def; }
+.print-legend .low::before { background: #1d1d1f; box-shadow: 0 0 0 1.5px #fff; }
 /* min-width: 0 keeps a long status from widening the dock past the screen. */
 .timeline { min-width: 0; padding: 10px 12px; border-radius: var(--r-panel); pointer-events: auto; }
 .timeline-head { display: flex; align-items: center; gap: 8px; }
@@ -420,6 +432,9 @@ kbd { display: inline-block; padding: 1px 7px; border-radius: 6px; background: v
   .floating-bar { flex-wrap: nowrap; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
   .floating-bar::-webkit-scrollbar { display: none; }
   .floating-bar > * { flex: none; }
+  /* The print check's readout goes under its slider instead of scrolling out of sight. */
+  .floating-bar.print-bar { flex-wrap: wrap; overflow-x: visible; }
+  .floating-bar.print-bar > .print-readout { flex: 1 1 100%; }
   /* The status and the scrubber each get a full line. */
   .timeline-head, .timeline-controls { flex-wrap: wrap; }
   .timeline-status { order: 5; flex-basis: 100%; padding: 4px 4px 0; }

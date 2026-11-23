@@ -1,5 +1,16 @@
 # Growth Studio Changelog
 
+## 0.10.0 2026-11-23
+
+- **Print check.** Choose **Print check** in the Color menu above the 3D view, or press **P**, to see what a slicer would need to support. The model is colored like the Parametric Viewer prototype: green prints, yellow is marginal (up to 10° steeper than the limit), red needs support, and blue touches the bed. Dark dots mark low points hanging in the air, which need a support to start on even when their sides are steep.
+  - **Support angle** sets the limit, counted up from the bed as Bambu Studio counts it: 45° by default, the classic rule. Bambu Studio's own default is 30°.
+  - The bar below the menu says how much of the surface needs support, how many low points hang in the air, and how much sits on the bed. On the built-in brain's outer layer with a 5 mm flat base: "Needs support 15.1% · 6 low points in the air · 5.7 cm² on the bed", and 7.1% at 30°.
+  - It counts the surface the view shows: the solid or outer layer when it's shown, otherwise the sheet, read as a wall with two sides, so it reads about as its solid will. It keeps counting while growth runs, and growth is no slower for it (about 19 s for the Collar either way).
+  - **From below** turns the view to look up at the undersides, where supports go.
+  - It counts faces on the mesh, so a slicer may differ a little: it skips very small overhangs, and adds supports only when they're switched on.
+- **Collar, upright** preset: the Collar with gravity pulling up instead of down, so its brim stands up in pleats instead of drooping flat. On the weave vase at 45°, with a 1.2 mm wall, it needs support on 0.4% of its surface, all of it the round bottom rim, against 3.2% for the Collar.
+- Projects save the print check and its support angle. Older projects open at 45°.
+
 ## 0.9.1 2026-11-10
 
 - **Fold size keeps growing.** Once a brain has grown, Fine, Medium or Broad no longer rebuild it from the smooth brain. The brain keeps its folds and its timeline, and grows on at the new size from that step, even while it's playing. Before growth, Fold size still rebuilds the starting shape, since there's nothing to lose.

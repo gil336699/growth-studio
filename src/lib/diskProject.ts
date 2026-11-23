@@ -2,12 +2,13 @@ import type { BrainInfo, GrowthStlSource } from '../physics/growthStl'
 import { DISK_DEFAULTS, type DiskSnapshot } from '../physics/growingDisk'
 import { validLayers } from '../physics/growthLayers'
 import { RIM_ROUNDNESS, WALL_SHIFT, type RimProfile, type WallSide } from './thicken'
+import { PRINT_ANGLE_DEFAULT, PRINT_ANGLE_RANGE } from './printCheck'
 
 // Kept from Growth Lab so projects saved there still open here.
 const SCHEMA = 'growth-lab/disk-project'
 const VERSION = 2
 export type DiskView = 'smooth' | 'triangles' | 'cells' | 'fans'
-export type Overlay = 'field' | 'growth' | 'contact' | 'none'
+export type Overlay = 'field' | 'growth' | 'contact' | 'print' | 'none'
 export type Symmetry = 'off' | 'mirror' | 'radial'
 export type BrushSettings = { radius: number; strength: number; hardness: number; symmetry: Symmetry; copies: number }
 export type Phase = { mode: 'grow' | 'relax'; steps: number }
@@ -39,6 +40,8 @@ export type DiskProject = {
   phases?: Phase[]
   stopAt?: StopAt
   thickness?: Thickness
+  // The print check's support angle, in degrees up from the bed.
+  printAngle?: number
   // Version 1 fields, converted on open.
   rimWidth?: number
   brushRadius?: number
@@ -132,11 +135,12 @@ export function deserializeDiskProject(json: string) {
     || !count(disk.clock)
     || (disk.ignoredOverlaps !== undefined && (!Array.isArray(disk.ignoredOverlaps) || !disk.ignoredOverlaps.every(v => count(v, vertices - 1))))
     || (project.brush !== undefined && !validBrush(project.brush))
-    || (project.overlay !== undefined && !['field', 'growth', 'contact', 'none'].includes(project.overlay))
+    || (project.overlay !== undefined && !['field', 'growth', 'contact', 'print', 'none'].includes(project.overlay))
     || (project.ghost !== undefined && typeof project.ghost !== 'boolean')
     || (project.phases !== undefined && !validPhases(project.phases))
     || (project.stopAt !== undefined && !validStop(project.stopAt))
-    || (project.thickness !== undefined && !validThickness(project.thickness))) throw invalid()
+    || (project.thickness !== undefined && !validThickness(project.thickness))
+    || (project.printAngle !== undefined && !finite(project.printAngle, PRINT_ANGLE_RANGE[0], PRINT_ANGLE_RANGE[1]))) throw invalid()
   return {
     ...project,
     mechanics,
@@ -146,6 +150,7 @@ export function deserializeDiskProject(json: string) {
     ghost: project.ghost ?? false,
     phases: project.phases ?? [],
     stopAt: project.stopAt ?? STOP_DEFAULTS,
+    printAngle: project.printAngle ?? PRINT_ANGLE_DEFAULT,
     // Growth Lab's version 1 had no thickness.
     thickness: legacy ? THICKNESS_DEFAULTS : { ...THICKNESS_DEFAULTS, ...project.thickness },
     source: source && { ...source, positions: Float32Array.from(source.positions), indices: Uint32Array.from(source.indices) },

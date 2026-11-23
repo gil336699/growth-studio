@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest'
+import { DISK_DEFAULTS, diskGravityDirection } from '../physics/growingDisk'
 import { validLayers } from '../physics/growthLayers'
 import { BRUSH_DEFAULTS } from './diskProject'
 import { formSize, rimWaves } from './formReadouts'
@@ -50,4 +51,13 @@ it('repeats brush points around the vertical axis and mirrors them', () => {
   expect(radial[2].point.map(v => +v.toFixed(6))).toEqual([-1, 0.5, 0])
   const mirror = symmetricPoints([1, 0.5, 0.3], [1, 0, 0], { ...BRUSH_DEFAULTS, symmetry: 'mirror' }, [0.5, 0])
   expect(mirror[1].point).toEqual([0, 0.5, 0.3])
+})
+
+it('grows the upright Collar like the Collar, with gravity pulling straight up instead of down', () => {
+  const collar = PRESETS.find(preset => preset.id === 'collar')!.build(2)
+  const upright = PRESETS.find(preset => preset.id === 'collar-upright')!.build(2)
+  expect(diskGravityDirection({ ...DISK_DEFAULTS, ...collar.mechanics })[1]).toBeCloseTo(-1, 9)
+  expect(diskGravityDirection({ ...DISK_DEFAULTS, ...upright.mechanics })[1]).toBeCloseTo(1, 9)
+  expect({ ...collar.mechanics, gravityTilt: 180 }).toEqual(upright.mechanics)
+  expect(upright.stopAt).toEqual(collar.stopAt)
 })

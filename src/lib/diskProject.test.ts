@@ -133,3 +133,20 @@ it('keeps the print thickness settings, and opens older projects with thickness 
   expect(deserializeDiskProject(serializeDiskProject({ ...base, thickness: noBase as never })).thickness).toEqual({ ...thickness, flatBase: false, baseCut: 5 })
   expect(() => deserializeDiskProject(serializeDiskProject({ ...base, thickness: { ...thickness, baseCut: -1 } }))).toThrow('invalid design data')
 })
+
+it('keeps the print check and its support angle, and opens older projects at the 45° default', () => {
+  const input = sheet()
+  const disk = createGrowingDisk(input)
+  const json = serializeDiskProject({
+    source: source(input), disk: disk.snapshot(), mechanics: DISK_DEFAULTS, revision: 0, ...settings, overlay: 'print', printAngle: 30,
+  })
+  const project = deserializeDiskProject(json)
+  expect(project.overlay).toBe('print')
+  expect(project.printAngle).toBe(30)
+  const older = JSON.parse(json)
+  delete older.printAngle
+  expect(deserializeDiskProject(JSON.stringify(older)).printAngle).toBe(45)
+  const flat = JSON.parse(json)
+  flat.printAngle = 5
+  expect(() => deserializeDiskProject(JSON.stringify(flat))).toThrow('invalid design data')
+})

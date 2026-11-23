@@ -53,6 +53,14 @@ export const PRESETS: Preset[] = [
     }),
   },
   {
+    id: 'collar-upright', name: 'Collar, upright', description: 'The Collar flare with gravity pulling up instead, so it stands up in pleats, with no overhang under the flare.',
+    build: rimCount => ({
+      layers: [createLayer('rim', { name: 'Collar', rim: rimTarget(rimCount), width: 0.35, falloff: 'soft' }), createLayer('paint')],
+      mechanics: { growthRate: 0.003, bending: 0.14, compoundGrowth: 0, gravity: 0.35, gravityTilt: 180 },
+      stopAt: { kind: 'strain', value: 1.2 },
+    }),
+  },
+  {
     id: 'bloom', name: 'Bloom', description: 'Lobes grow first, then a fine ruffle joins later.',
     build: rimCount => ({
       layers: [

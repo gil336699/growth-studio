@@ -1,6 +1,6 @@
 # Growth Studio
 
-Growth Studio is a browser app for differential growth. Start from a flat disk or an open STL such as a Fusion vase base, decide where and when it grows, and watch the rim ruffle and fold. Or switch to **brain mode** and grow a closed shape, such as the built-in brain or your own STL, until it folds like a brain. Save editable projects, and export OBJ or STL back to CAD, or as a solid with walls and rounded rims, ready to print.
+Growth Studio is a browser app for differential growth. Start from a flat disk or an open STL such as a Fusion vase base, decide where and when it grows, and watch the rim ruffle and fold. Or switch to **brain mode** and grow a closed shape, such as the built-in brain or your own STL, until it folds like a brain. Save editable projects, and export OBJ or STL back to CAD, or as a solid with walls and rounded rims, ready to print. The **print check** colors what a slicer would need to support, so you can grow shapes that print without it.
 
 **Use it online:** https://gil336699.github.io/growth-studio/
 
@@ -33,7 +33,7 @@ The 3D view fills the window, and the controls float above it on translucent gla
 
 - **Top left.** The app name and the **?** button for shortcuts and the quick start.
 - **Left panel.** The starting surface, with the **Sheet / Brain** switch, Upload STL, Default disk or the brain's settings, and any warnings about the mesh. Below it, the **Growth field** tab holds the growth layers and the **Simulation** tab holds growth rate, stopping, gravity, contact, and advanced settings.
-- **Top of the 3D view.** Tools (Orbit, Paint, Erase, Smooth, Undo) on the left. Choosing a brush tool shows its size, strength, hardness, and symmetry just below. Color overlay, mesh view, ghost, and framing on the right.
+- **Top of the 3D view.** Tools (Orbit, Paint, Erase, Smooth, Undo) on the left. Choosing a brush tool shows its size, strength, hardness, and symmetry just below. Color overlay, mesh view, ghost, and framing on the right. Choosing **Print check** shows the support angle and what it counted just below.
 - **Bottom of the 3D view.** The timeline dock: **Play growth**, **Step**, and **Reset**, the status, scrubbing, snapshots, and phases.
 - **Right panel.** **Form** shows measurements, Fold size, and stats. **Explore** has presets and variants. **File** saves, opens, and exports, and shows a dot when there are unsaved changes.
 
@@ -53,7 +53,7 @@ On tablets the 3D view sits on top, with both panels below it. On phones everyth
 4. **Grow.** Press **Play growth** in the timeline dock, step in batches, or run a recipe of phases. **Relax only** lets the form settle without adding growth.
 5. **Look back.** Scrub the timeline to any snapshot and continue from there.
 6. **Save and export.** **Save project** writes an editable `.growthstudio.json` file. **Export OBJ** or **Export STL** writes the current surface in the STL's original coordinates, unless **Center exported mesh** is checked.
-7. **Make it printable.** The surface is an open sheet. Turn on **Add thickness** under **File › Export mesh** to export a solid instead (see [Thickness for printing](#thickness-for-printing)).
+7. **Make it printable.** The surface is an open sheet. Turn on **Add thickness** under **File › Export mesh** to export a solid instead (see [Thickness for printing](#thickness-for-printing)). Choose **Print check** in the Color menu, or press P, to see what will need support (see [Print check](#print-check)).
 
 The app asks before Reset, Upload STL, Default disk, or Open project would discard unsaved work. Growth Lab disk projects also open.
 
@@ -117,6 +117,24 @@ Every fold of the grown surface is kept: the wall is offset along the surface, n
 
 On a **closed shape**, such as a brain, Add thickness builds an **outer layer** instead: the inside is filled and a layer of the set thickness wraps the surface, half of it outside. Folds closer together than the layer merge, so Export writes one watertight solid in millimeters, with every edge shared by exactly two faces. The layer is built on a voxel grid in the background each time growth pauses, in a few seconds for a folded brain. While growth runs, the view shows a quick preview: the surface pushed out along its normals. **Flat base** cuts the solid flat at the bottom, **Base cut** mm up (5 mm by default), so a print stands on the bed without supports under it.
 
+## Print check
+
+Choose **Print check** in the **Color** menu above the 3D view, or press **P**, to see what a slicer would need to support. The colors are those of the Parametric Viewer prototype.
+
+| Color | Means |
+| --- | --- |
+| Green, **Printable** | Prints without support. |
+| Yellow, **Marginal** | Up to 10° steeper than the support angle: it prints, but only just. |
+| Red, **Needs support** | Faces down and leans out flatter than the support angle. |
+| Blue, **Touches the bed** | Faces straight down within 0.2 mm of the lowest point, Bambu Studio's first layer. |
+| Dark dot, **Low point** | Lower than everything around it, on a surface facing down, so it hangs in the air. It needs a support to start on, even when its sides are steep. |
+
+**Support angle** is counted up from the bed, as Bambu Studio and PrusaSlicer count it: 45° by default, the classic rule, and Bambu Studio's own default is 30°. Cura counts from vertical, so only 45° means the same in both. The bar below the menu says what was counted, for example "Needs support 15.1% · 6 low points in the air · 5.7 cm² on the bed" for the built-in brain's outer layer with a 5 mm flat base. **From below** turns the view to look up at the undersides, where supports go; **Frame** turns it back.
+
+The check counts the surface the view shows: the solid or the outer layer when it's shown, otherwise the sheet, read as a wall with two sides, both of which count, so a sheet reads about as its solid will. Before the default disk grows, the crests of its starting ripple sit up to 0.3 mm above the bed, so a few of them show red. While growth runs it counts a few times a second, and growth is no slower for it: the Collar grew to its target in about 19 s with the check on or off.
+
+To grow a vase that prints without supports, let it grow upward: under **Simulation › Gravity**, set **Strength** to 35% and **Tilt from down** to 180°, or use the **Collar, upright** preset. On the weave vase at 45°, with a 1.2 mm wall, the Collar needs support on 3.2% of its surface and the upright Collar on 0.4%, all of it the round bottom rim of the wall. For a closed shape, **Flat base** gives the print a footprint on the bed.
+
 ## Controls
 
 | Control | Effect |
@@ -133,9 +151,9 @@ On a **closed shape**, such as a brain, Add thickness builds an **outer layer** 
 | Repel distance and strength | How far apart folds in the growth field stay when they meet, and how quickly they are pushed back. |
 | Remesh edge length, Mesh detail limit (Simulation › Advanced) | Starting triangle size and how many vertices growth can add. |
 
-The **Form** tab reports waves on each growing rim, size compared with the start, and dimensions in millimeters. The **Color** menu above the 3D view switches the overlay between the growth field, growth so far, and recent contact, and **Ghost** shows the starting shape.
+The **Form** tab reports waves on each growing rim, size compared with the start, and dimensions in millimeters. The **Color** menu above the 3D view switches the overlay between the growth field, growth so far, recent contact, and the [print check](#print-check), and **Ghost** shows the starting shape.
 
-In the **Explore** tab, **Presets** set layers and settings for common forms: lettuce edge, petal, coral, collar, bloom, and brain folds. **Explore variants** grows four versions from the current shape with one setting changed, such as Bend stiffness or Core firmness, so you can continue the one you like.
+In the **Explore** tab, **Presets** set layers and settings for common forms: lettuce edge, petal, coral, collar, collar upright, bloom, and brain folds. **Explore variants** grows four versions from the current shape with one setting changed, such as Bend stiffness or Core firmness, so you can continue the one you like.
 
 ## Keyboard shortcuts
 
@@ -147,6 +165,7 @@ In the **Explore** tab, **Presets** set layers and settings for common forms: le
 | [ and ] | Brush size |
 | ⌘Z or Ctrl+Z | Undo brush stroke |
 | G | Next color overlay |
+| P | Print check on or off |
 | F | Frame the model |
 | 1 to 4 | Mesh view |
 | ⌘S or Ctrl+S | Save project |
@@ -168,6 +187,7 @@ This is a position-based design model. It is not a validated thin-shell or biolo
 - Opening a very large STL still pauses the page while the surface is prepared, about 6 seconds for 181,000 triangles.
 - Very dense growth, such as compounding beyond about 15 times the original size, blocks more steps and slows to a few steps per second.
 - STL files carry no units. Dimensions, and the wall of a thickened STL, are in millimeters.
+- The print check counts faces on the mesh. It doesn't know your slicer's settings: a slicer skips very small overhangs, bridges short gaps, and adds supports only when they're switched on, so its result can differ a little. Turn on Add thickness to check the solid with its rims rather than the sheet.
 - The wall has one thickness everywhere; it cannot yet vary across the model.
 - Browsers may slow work in hidden tabs, so growth can slow down while the tab is hidden. The view catches up when you return.
 - Brain mode's built-in brain grows its 420 steps in about a minute and a half in Chrome (89 s on an M1 Max, 4.7 steps a second), ending at 16,508 points. Fine folds start from 9,564 points instead of 6,288 and take about 2½ minutes (161 s), ending at 24,592 points. The outer layer takes about 2 to 4 seconds to build after each pause, and has about 590,000 triangles on a folded brain.
@@ -187,6 +207,7 @@ npm run build
 - `src/components/`: the viewport, layers, timeline, and variant panels
 - `src/physics/`: the growing surface, growth layers, contact, bending, remeshing, and Voronoi views
 - `src/lib/`: STL import, project files, export, thickness for printing (`thicken.ts`), presets, readouts, and symmetry
+- `src/lib/printCheck.ts`: the print check (what needs support, what sits on the bed, and low points), counted for the view by `usePrintCheck.ts` and colored by `src/components/printShader.ts`
 - `src/lib/brain.ts` and `src/assets/brain/`: brain mode's recipe, the built-in brain at three fold sizes, and rebuilding an uploaded STL. `src/lib/voxel.ts` builds the outer layer and the rebuilt shapes on a voxel grid; `src/lib/outerLayer.worker.ts` runs it off the page. The design is in [docs/brain-mode.md](docs/brain-mode.md)
 
 Growth Studio was split out of Growth Lab at commit `2837c65`.

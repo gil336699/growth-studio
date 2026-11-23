@@ -13,6 +13,7 @@ import type { GrowthLayer, Vec3 } from '../physics/growthLayers'
 import type { Solid } from '../lib/thicken'
 import { buildDiskVoronoi, diskVoronoiLines } from '../physics/diskVoronoi'
 import { type buildSurfaceVoronoi, surfaceVoronoiLines } from '../physics/surfaceVoronoi'
+import { createPrintShader, lowPointDot, type PrintView } from './printShader'
 
 type Disk = DiskSession
 
@@ -20,7 +21,7 @@ const NEUTRAL = new Color('#ffffff')
 // Neutral tone mapping keeps the white surface white. The default, ACES, turns it light grey.
 const RENDERER = { toneMapping: NeutralToneMapping }
 const OVERLAY_COLORS: Record<Overlay, Color> = {
-  field: new Color('#e63c37'), growth: new Color('#5b4bd6'), contact: new Color('#e0a100'), none: NEUTRAL,
+  field: new Color('#e63c37'), growth: new Color('#5b4bd6'), contact: new Color('#e0a100'), print: NEUTRAL, none: NEUTRAL,
 }
 // Where a thickened wall crosses itself.
 const CROSSING = new Color('#ff2d95')
@@ -59,12 +60,14 @@ type SheetProps = {
   smooth?: boolean
   // While growing, a closed shape's outer layer is previewed by pushing the sheet out this far along its normals.
   offset?: number
+  // The print check's colors and low points, while the Print check color is on.
+  print?: (PrintView & { marks: [number, number, number][] }) | null
   onStroke: (points: StrokePoint[], pressure: number, first: boolean) => void
   onPlace: (point: Vec3) => void
 }
 
 function Sheet(props: SheetProps) {
-  const { disk, tick, view, overlay, ghost, imported, running, tool, canEdit, brush, rimEdges, layers, selectedLayerId, solid, crossings } = props
+  const { disk, tick, view, overlay, ghost, imported, running, tool, canEdit, brush, rimEdges, layers, selectedLayerId, solid, crossings, print } = props
   const smooth = Boolean(props.smooth), offset = props.offset ?? 0
   // An STL is drawn flat-shaded, facets and all, unless it's a brain-mode shape or the layer preview needs normals.
   const normals = !imported || smooth || offset > 0
@@ -131,6 +134,17 @@ function Sheet(props: SheetProps) {
     color.needsUpdate = true
   }, [solid, solidGeometry, geometry, crossings, overlay, tick, disk.fieldRevision])
   useEffect(() => () => solidGeometry?.dispose(), [solidGeometry])
+  // The print check colors the sheet and the solid alike. Its shader is compiled into both materials once and switched
+  // on and off with a uniform, so turning it on doesn't rebuild them.
+  const [printShader] = useState(createPrintShader)
+  useLayoutEffect(() => printShader.update(print ?? null), [printShader, print])
+  const marks = print?.marks
+  const lowPoints = useMemo(() => {
+    const points = new BufferGeometry()
+    points.setAttribute('position', new BufferAttribute(Float32Array.from((marks ?? []).flat()), 3))
+    return points
+  }, [marks])
+  useEffect(() => () => lowPoints.dispose(), [lowPoints])
 
   const ghostGeometry = useMemo(() => {
     if (!ghost) return null
@@ -258,10 +272,12 @@ function Sheet(props: SheetProps) {
           the shading changes: three.js only rebuilds a shader for flat shading when the material is new, and an
           STL that replaced the disk otherwise drew without light from the lamp, in flat grey. */}
       <meshStandardMaterial key={flat ? 'flat' : 'smooth'} vertexColors flatShading={flat} side={DoubleSide} roughness={0.85}
-        polygonOffset polygonOffsetFactor={2} visible={!solidGeometry} />
+        polygonOffset polygonOffsetFactor={2} visible={!solidGeometry}
+        onBeforeCompile={printShader.onBeforeCompile} customProgramCacheKey={printShader.cacheKey} />
     </mesh>
     {solidGeometry && <mesh geometry={solidGeometry}><meshStandardMaterial key={imported && !solid?.smooth ? 'flat' : 'smooth'} vertexColors
-      flatShading={imported && !solid?.smooth} roughness={0.85} /></mesh>}
+      flatShading={imported && !solid?.smooth} roughness={0.85}
+      onBeforeCompile={printShader.onBeforeCompile} customProgramCacheKey={printShader.cacheKey} /></mesh>}
     {solidGeometry ? null : view === 'triangles'
       ? <mesh geometry={geometry}><meshBasicMaterial color="#294557" wireframe /></mesh>
       : view !== 'smooth' && <lineSegments geometry={cellLines}><lineBasicMaterial vertexColors /></lineSegments>}
@@ -278,15 +294,30 @@ function Sheet(props: SheetProps) {
     </mesh>)}
     {markers.lines.map(({ id, line }) => <primitive key={id} object={line} />)}
     {rimOutline && <lineSegments geometry={rimOutline} renderOrder={2}><lineBasicMaterial color="#ffd66a" depthTest={false} /></lineSegments>}
+    {/* Low points hanging in the air: dots of one size on screen, drawn through the model so the ones underneath show
+        from above too. */}
+    {marks && marks.length > 0 && <points geometry={lowPoints} renderOrder={5}>
+      <pointsMaterial map={lowPointDot()} size={12} sizeAttenuation={false} transparent alphaTest={0.5} depthTest={false} />
+    </points>}
   </group>
 }
 
 export function Viewport(props: SheetProps & {
   gravityArrow: [Vector3, Vector3, number, string, number, number] | null
   cameraKey: number
+  // Changes each time the view should turn to look at the model from below.
+  belowKey?: number
 }) {
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null)
   useEffect(() => { controls.current?.reset() }, [props.cameraKey])
+  // From below and a little to the side, at the same distance, so the undersides that need support face the camera.
+  useEffect(() => {
+    const orbit = controls.current
+    if (!props.belowKey || !orbit) return
+    const distance = orbit.object.position.distanceTo(orbit.target)
+    orbit.object.position.copy(orbit.target).add(new Vector3(0.45, -0.85, 0.6).normalize().multiplyScalar(distance))
+    orbit.update()
+  }, [props.belowKey])
   const editing = props.canEdit && props.tool !== 'orbit'
   return <div className="stage-canvas" style={{ cursor: editing ? 'crosshair' : 'grab' }}>
     <Canvas camera={{ position: [0, 3.4, 3.4], fov: 48 }} gl={RENDERER} role="img"

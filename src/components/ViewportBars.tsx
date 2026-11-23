@@ -1,4 +1,5 @@
 import type { BrushSettings, DiskView, Overlay } from '../lib/diskProject'
+import { PRINT_ANGLE_RANGE } from '../lib/printCheck'
 import { rangeFill } from '../lib/rangeFill'
 import type { Tool } from '../lib/tools'
 
@@ -9,6 +10,11 @@ type Props = {
   overlay: Overlay
   view: DiskView
   ghost: boolean
+  // The print check's support angle and what it counted, shown while the Print check color is on.
+  printAngle: number
+  printReadout: string
+  onPrintAngle: (angle: number) => void
+  onBelow: () => void
   // What a point or line tool is placing, shown with a Done button.
   placing: string | null
   onTool: (tool: Tool) => void
@@ -53,9 +59,9 @@ export function ViewportBars(props: Props) {
       </div>
       <div className="floating-bar glass view-bar" role="group" aria-label="Display">
         <label className="bar-select" data-key="G"
-          data-tip="Color the model by where it grows now (Field), where it has grown (Grown), or where folds touched (Contact)."><span aria-hidden="true">Color</span>
+          data-tip="Color the model by where it grows now (Field), where it has grown (Grown), where folds touched (Contact), or what needs support to print (Print check)."><span aria-hidden="true">Color</span>
           <select aria-label="Color overlay" value={props.overlay} onChange={event => props.onOverlay(event.currentTarget.value as Overlay)}>
-            <option value="field">Field</option><option value="growth">Grown</option><option value="contact">Contact</option><option value="none">Plain</option>
+            <option value="field">Field</option><option value="growth">Grown</option><option value="contact">Contact</option><option value="print">Print check</option><option value="none">Plain</option>
           </select>
         </label>
         <label className="bar-select" data-key="1–4"
@@ -85,6 +91,12 @@ export function ViewportBars(props: Props) {
       </div>
       {brush.symmetry === 'radial' && <BarSlider label="Copies" value={brush.copies} display={String(brush.copies)} min={2} max={12} step={1}
         title="How many times a stroke repeats around the model." onChange={copies => set({ copies })} />}
+    </div>}
+    {props.overlay === 'print' && <div className="floating-bar glass print-bar" role="group" aria-label="Print check">
+      <BarSlider label="Support angle" value={props.printAngle} display={`${props.printAngle}°`} min={PRINT_ANGLE_RANGE[0]} max={PRINT_ANGLE_RANGE[1]} step={1}
+        title="Surfaces that face down and lean out flatter than this, counted up from the bed, need support. 30° is Bambu Studio's default, 45° the classic rule." onChange={props.onPrintAngle} />
+      <button type="button" data-tip="Turn the view to look at the model from below, where supports go. Frame turns it back." onClick={props.onBelow}>From below</button>
+      <span className="print-readout" role="status" data-tip="Counted on the surface in the 3D view: the solid or outer layer when it's shown, otherwise the sheet, as a wall with two sides. A slicer may differ a little: it skips small overhangs, and adds supports only when they're switched on.">{props.printReadout}</span>
     </div>}
     {props.placing && <div className="floating-bar glass placing-bar" role="group" aria-label="Placing">
       <span>{props.placing}</span>
