@@ -130,6 +130,8 @@ function Sheet(props: SheetProps) {
     const color = solidGeometry.getAttribute('color') as BufferAttribute
     const rgb = color.array as Float32Array
     for (let v = 0; v < solid.origin.length; v++) rgb.set(from.subarray(solid.origin[v] * 3, solid.origin[v] * 3 + 3), v * 3)
+    // A smoothed sheet's new points sit between two sheet vertices: average their colors so edges stay soft.
+    if (solid.blend) for (let v = 0; v < solid.blend.length; v++) for (let k = 0; k < 3; k++) rgb[v * 3 + k] = (rgb[v * 3 + k] + from[solid.blend[v] * 3 + k]) / 2
     for (const v of crossings ?? []) CROSSING.toArray(rgb, v * 3)
     color.needsUpdate = true
   }, [solid, solidGeometry, geometry, crossings, overlay, tick, disk.fieldRevision])

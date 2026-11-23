@@ -1,5 +1,14 @@
 # Growth Studio Changelog
 
+## 0.11.0 2026-11-23
+
+- **Smooth surface before the wall.** Under **Add thickness** in File › Export mesh, **Smooth surface** smooths the grown sheet before its wall is added, so a coarse sheet prints without facets. **Light** smooths once and **Strong** twice. On the weave vase grown with Collar, upright, the solid goes from 5,570 triangles with visible facets to 20,136 (Light) or 76,256 (Strong), smooth, and still watertight.
+  - Each pass splits every triangle into four and moves the corners toward a smooth surface (Loop subdivision). Open rims follow a smooth curve through their own points, so a rim stays a rim and a flat bottom rim stays flat.
+  - Folds soften a little. The upright Collar's solid gets about 0.5 mm narrower, from 91.3 to 90.8 mm, and keeps its 101.6 mm height.
+  - A level that would pass 400,000 triangles is unavailable, and its button says why.
+  - The 3D view, the print check and Export all use the smoothed solid. It's drawn smooth, and overlay colors blend across it.
+  - Projects save the setting. Older projects open with it off.
+
 ## 0.10.0 2026-11-23
 
 - **Print check.** Choose **Print check** in the Color menu above the 3D view, or press **P**, to see what a slicer would need to support. The model is colored like the Parametric Viewer prototype: green prints, yellow is marginal (up to 10° steeper than the limit), red needs support, and blue touches the bed. Dark dots mark low points hanging in the air, which need a support to start on even when their sides are steep.

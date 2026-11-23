@@ -113,7 +113,7 @@ it('opens projects saved before newer mechanics settings existed', () => {
 it('keeps the print thickness settings, and opens older projects with thickness off', () => {
   const disk = createGrowingDisk()
   const base = { source: null, disk: disk.snapshot(), mechanics: DISK_DEFAULTS, revision: 0, ...settings }
-  const thickness = { on: true, wall: 0.8, side: 'inside' as const, rim: 'soft' as const, size: 140, show: false, flatBase: true, baseCut: 3.5 }
+  const thickness = { on: true, wall: 0.8, side: 'inside' as const, rim: 'soft' as const, size: 140, show: false, flatBase: true, baseCut: 3.5, smooth: 'strong' as const }
   expect(deserializeDiskProject(serializeDiskProject({ ...base, thickness })).thickness).toEqual(thickness)
   expect(deserializeDiskProject(serializeDiskProject(base)).thickness).toEqual(THICKNESS_DEFAULTS)
   expect(() => deserializeDiskProject(serializeDiskProject({ ...base, thickness: { ...thickness, rim: 'chamfer' as never } }))).toThrow('invalid design data')
@@ -132,6 +132,12 @@ it('keeps the print thickness settings, and opens older projects with thickness 
   delete noBase.baseCut
   expect(deserializeDiskProject(serializeDiskProject({ ...base, thickness: noBase as never })).thickness).toEqual({ ...thickness, flatBase: false, baseCut: 5 })
   expect(() => deserializeDiskProject(serializeDiskProject({ ...base, thickness: { ...thickness, baseCut: -1 } }))).toThrow('invalid design data')
+  // Saved by 0.10.0, before smoothing: it opens with smoothing off.
+  const noSmooth: Partial<typeof thickness> = { ...thickness }
+  delete noSmooth.smooth
+  expect(deserializeDiskProject(serializeDiskProject({ ...base, thickness: noSmooth as never })).thickness).toEqual({ ...thickness, smooth: 'off' })
+  expect(() => deserializeDiskProject(serializeDiskProject({ ...base, thickness: { ...thickness, smooth: 'extra' as never } }))).toThrow('invalid design data')
+  expect(() => deserializeDiskProject(serializeDiskProject({ ...base, thickness: { ...thickness, smooth: ['light'] as never } }))).toThrow('invalid design data')
 })
 
 it('keeps the print check and its support angle, and opens older projects at the 45° default', () => {

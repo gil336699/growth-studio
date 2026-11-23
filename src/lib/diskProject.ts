@@ -3,6 +3,7 @@ import { DISK_DEFAULTS, type DiskSnapshot } from '../physics/growingDisk'
 import { validLayers } from '../physics/growthLayers'
 import { RIM_ROUNDNESS, WALL_SHIFT, type RimProfile, type WallSide } from './thicken'
 import { PRINT_ANGLE_DEFAULT, PRINT_ANGLE_RANGE } from './printCheck'
+import { SMOOTH_PASSES, type SmoothLevel } from './smoothSheet'
 
 // Kept from Growth Lab so projects saved there still open here.
 const SCHEMA = 'growth-lab/disk-project'
@@ -15,11 +16,12 @@ export type Phase = { mode: 'grow' | 'relax'; steps: number }
 export type StopAt = { kind: 'none' | 'size' | 'step' | 'strain'; value: number }
 // Wall for printing, in millimeters. size is the default disk's longest side; an STL keeps its own millimeters.
 // flatBase and baseCut cut a closed shape's outer layer flat at the bottom, baseCut mm up, so it sits on a print bed.
-export type Thickness = { on: boolean; wall: number; side: WallSide; rim: RimProfile; size: number; show: boolean; flatBase: boolean; baseCut: number }
+// smooth smooths an open sheet before its wall is added.
+export type Thickness = { on: boolean; wall: number; side: WallSide; rim: RimProfile; size: number; show: boolean; flatBase: boolean; baseCut: number; smooth: SmoothLevel }
 
 export const BRUSH_DEFAULTS: BrushSettings = { radius: 0.15, strength: 1, hardness: 0, symmetry: 'off', copies: 6 }
 export const STOP_DEFAULTS: StopAt = { kind: 'none', value: 2 }
-export const THICKNESS_DEFAULTS: Thickness = { on: false, wall: 1.2, side: 'both', rim: 'round', size: 100, show: true, flatBase: false, baseCut: 5 }
+export const THICKNESS_DEFAULTS: Thickness = { on: false, wall: 1.2, side: 'both', rim: 'round', size: 100, show: true, flatBase: false, baseCut: 5, smooth: 'off' }
 
 type ProjectSource = Omit<GrowthStlSource, 'positions' | 'indices'> & { positions: number[]; indices: number[] }
 export type DiskProject = {
@@ -94,6 +96,8 @@ const validThickness = (thickness: Thickness) => typeof thickness === 'object' &
   // Projects from before 0.9.1 have no flat base.
   && (thickness.flatBase === undefined || typeof thickness.flatBase === 'boolean')
   && (thickness.baseCut === undefined || finite(thickness.baseCut, 0.1, 1000))
+  // Projects from before 0.11.0 have no smoothing and open with it off.
+  && (thickness.smooth === undefined || (typeof thickness.smooth === 'string' && Object.hasOwn(SMOOTH_PASSES, thickness.smooth)))
 
 export function deserializeDiskProject(json: string) {
   const project = JSON.parse(json) as DiskProject & { schema: unknown; version: unknown }

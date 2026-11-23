@@ -15,6 +15,8 @@ export type Solid = {
   indices: Uint32Array
   // The surface vertex each solid vertex came from, so overlay colors carry over.
   origin: Uint32Array
+  // A second surface vertex whose color is averaged with origin's: set for a sheet smoothed before its wall.
+  blend?: Uint32Array
   // Surface edges used by only one face, now closed by the rim.
   rimEdges: number
   // Drawn with smooth shading: the outer layer of a closed shape, which has no facets to keep.

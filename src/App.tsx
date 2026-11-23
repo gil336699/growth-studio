@@ -25,6 +25,7 @@ import { PRESETS } from './lib/presets'
 import { rangeFill } from './lib/rangeFill'
 import { saveFile, type SaveResult } from './lib/saveFile'
 import { facingSign, printScale, RIM_ROUNDNESS, thicken, WALL_SHIFT, type RimProfile, type Solid, type WallSide } from './lib/thicken'
+import { SMOOTH_MAX_TRIANGLES, smoothPassesFor, smoothSheet, type SmoothLevel } from './lib/smoothSheet'
 import { createGrowingDisk, DISK_DEFAULTS, diskGravityDirection, type BrushMode, type DiskSnapshot, type StrokePoint } from './physics/growingDisk'
 import type { GrowthLayer, Vec3 } from './physics/growthLayers'
 import { growthExportPositions, readGrowthStl, type GrowthStlSource } from './physics/growthStl'
@@ -53,6 +54,11 @@ const RIM_PROFILES: [RimProfile, string, string][] = [
   ['round', 'Round', 'A half-round edge, like a leaf or petal.'],
   ['soft', 'Soft', 'A flat edge with rounded corners.'],
   ['square', 'Square', 'A flat edge cut straight across the wall.'],
+]
+const SMOOTH_LEVELS: [SmoothLevel, string, string][] = [
+  ['off', 'Off', 'Add the wall to the surface as it grew, triangle for triangle.'],
+  ['light', 'Light', 'Smooth the surface once before the wall: four times the triangles, and most facets gone.'],
+  ['strong', 'Strong', 'Smooth it twice: sixteen times the triangles, smooth even on a coarse sheet. Folds soften a little.'],
 ]
 const percent = (value: number, digits = 0) => `${(value * 100).toFixed(digits)}%`
 // Controls that Space presses when they have keyboard focus.
@@ -181,9 +187,18 @@ export function App() {
   // Outside and Inside follow the way the starting surface faces: away from the middle of an STL, or up from the disk.
   // An STL keeps its own millimeters. The default disk is scaled so the solid itself, wall and rims included, has the
   // chosen longest side; scaling the sheet alone made a 100 mm disk with a 5 mm wall export 105 mm long.
-  const makeSolid = (wallMm: number, rim: RimProfile, side: WallSide, size: number) => {
+  // Smooth first smooths the sheet (Loop subdivision, see lib/smoothSheet), and the wall follows the smoothed surface.
+  const makeSolid = (wallMm: number, rim: RimProfile, side: WallSide, size: number, smooth: SmoothLevel) => {
     const shift = side === 'both' ? 0 : WALL_SHIFT[side] * facingSign(disk.referencePositions, disk.indices, input ? 'outward' : 'up')
-    const build = (scale: number) => thicken(disk.positions, disk.indices, wallMm / scale, RIM_ROUNDNESS[rim], 4, shift)
+    const passes = smoothPassesFor(smooth, disk.indices.length / 3)
+    const sheet = passes ? smoothSheet(disk.positions, disk.indices, passes) : null
+    const build = (scale: number) => {
+      const made = thicken(sheet ? sheet.positions : disk.positions, sheet ? sheet.indices : disk.indices, wallMm / scale, RIM_ROUNDNESS[rim], 4, shift)
+      // Point every solid vertex back to the grown sheet's vertices, so overlay colors carry over, and draw it smooth:
+      // a smoothed sheet has no facets to keep.
+      if (sheet) { made.blend = Uint32Array.from(made.origin, v => sheet.origin2[v]); made.origin = Uint32Array.from(made.origin, v => sheet.origin[v]); made.smooth = true }
+      return made
+    }
     if (input) return { solid: build(input.scale), mmPerUnit: input.scale }
     let mmPerUnit = printScale(disk.positions, null, size), solid = build(mmPerUnit)
     for (let pass = 0; pass < 2; pass++) { mmPerUnit = printScale(solid.positions, null, size); solid = build(mmPerUnit) }
@@ -191,11 +206,11 @@ export function App() {
   }
   // Deferred, so dragging the wall slider stays smooth on a dense mesh.
   const wall = useDeferredValue(thickness.wall), rimProfile = useDeferredValue(thickness.rim)
-  const wallSide = useDeferredValue(thickness.side), printSize = useDeferredValue(thickness.size)
-  const solid = useMemo(() => solidOn && !active ? makeSolid(wall, rimProfile, wallSide, printSize).solid : null,
+  const wallSide = useDeferredValue(thickness.side), printSize = useDeferredValue(thickness.size), smoothLevel = useDeferredValue(thickness.smooth)
+  const solid = useMemo(() => solidOn && !active ? makeSolid(wall, rimProfile, wallSide, printSize, smoothLevel).solid : null,
   // Positions change in place; the geometry revision tracks them.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  [solidOn, active, disk, disk.indices, disk.geometryRevision, wall, rimProfile, wallSide, printSize, input])
+  [solidOn, active, disk, disk.indices, disk.geometryRevision, wall, rimProfile, wallSide, printSize, smoothLevel, input])
   // Whether the solid is closed and where its wall crosses itself, found in a worker since a dense mesh takes seconds.
   type SolidCheck = { leaks: number; pairs: number; capped: boolean; vertices: number[]; failed?: boolean }
   const [solidCheck, setSolidCheck] = useState<SolidCheck & { solid: Solid } | null>(null)
@@ -506,7 +521,7 @@ export function App() {
     : result === 'downloaded' ? `Download requested for ${filename}. If no file appears, open Growth Studio in Chrome or Safari.`
       : result === 'cancelled' ? 'Save cancelled.' : `Could not save ${filename}.`
   const exportMesh = async (format: 'obj' | 'stl') => {
-    const made = solidOn ? makeSolid(thickness.wall, thickness.rim, thickness.side, thickness.size) : null
+    const made = solidOn ? makeSolid(thickness.wall, thickness.rim, thickness.side, thickness.size, thickness.smooth) : null
     if (closedLayer && !outer.solid) setExportStatus('Building the outer layer…')
     const layer = closedLayer ? await outer.request() : null
     if (closedLayer && !layer) { setExportStatus("The outer layer couldn't be built, so nothing was exported."); return }
@@ -1096,6 +1111,16 @@ export function App() {
                   : 'Building the outer layer…'}</p>
           </>}
           {solidOn && <>
+            <div className="group-field"><span id="smooth-label">Smooth surface</span>
+              <div className="button-row three" role="group" aria-labelledby="smooth-label">
+                {SMOOTH_LEVELS.map(([level, label, tip]) => {
+                  const sheetTriangles = disk.indices.length / 3, fits = smoothPassesFor(level, sheetTriangles) === (level === 'strong' ? 2 : level === 'light' ? 1 : 0)
+                  return <button key={level} type="button" aria-pressed={thickness.smooth === level} disabled={!fits}
+                    data-tip={fits ? tip : `This sheet has ${sheetTriangles.toLocaleString()} triangles: ${label} smoothing would make more than ${SMOOTH_MAX_TRIANGLES.toLocaleString()}.${level === 'strong' ? ' Use Light.' : ''}`}
+                    onClick={() => changeThickness({ smooth: level })}>{label}</button>
+                })}
+              </div>
+            </div>
             <Slider label="Wall thickness" value={thickness.wall} display={`${thickness.wall.toFixed(1)} mm`} min={0.2} max={5} step={0.1}
               title={`Total wall${input ? ", in the STL's millimeters" : ''}. Most filament printers need at least 0.8 mm, resin printers about 0.5 mm.`}
               onChange={wall => changeThickness({ wall })} />
@@ -1125,7 +1150,7 @@ export function App() {
                 : crossings.pairs ? (disk.initialOverlap || disk.ignoringOverlaps
                   ? `The surface already crosses itself, so the wall does too, in ${crossingCount}${thickness.show ? ', shown in pink' : ''}. Combine the bodies in your CAD tool before printing.`
                   : `The wall crosses itself in ${crossingCount}${thickness.show ? ', shown in pink' : ''}, where folds come closer together, or bend more tightly, than the wall is thick. Most slicers merge these. For a clean solid, use a thinner wall.`)
-                  : `Closed solid with no crossings, ${(solid!.indices.length / 3).toLocaleString()} triangles.`}</p>
+                  : `Closed solid with no crossings, ${(solid!.indices.length / 3).toLocaleString()} triangles${thickness.smooth !== 'off' ? `, smoothed ${smoothPassesFor(thickness.smooth, disk.indices.length / 3) === 2 ? 'twice' : 'once'} before the wall` : ''}.`}</p>
           </>}
           <div className="button-row">
             <button disabled={active} data-tip={active ? 'Stop the simulation to export.' : solidOn ? 'Save the solid as an OBJ mesh, in millimeters.' : 'Save the current surface as an OBJ mesh.'} onClick={() => void exportMesh('obj')}>Export OBJ</button>
