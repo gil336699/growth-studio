@@ -1,5 +1,9 @@
 # Growth Studio Changelog
 
+## 0.11.1 2026-11-23
+
+- **A new README demo shows the print check.** The Collar on the weave vase grows a brim that droops and turns red, and with a 1.2 mm wall it needs support on 3.2% of its surface. **From below** shows where: under the brim and on the round bottom rim. The **Collar, upright** preset grows the same flare to 0.4%, only the bottom rim. Before, the demo showed the Bloom preset and Add thickness from 0.8. It's recorded on 0.11.0 with Smooth surface off, its default. The app itself is unchanged.
+
 ## 0.11.0 2026-11-23
 
 - **Smooth surface before the wall.** Under **Add thickness** in File › Export mesh, **Smooth surface** smooths the grown sheet before its wall is added, so a coarse sheet prints without facets. **Light** smooths once and **Strong** twice. On the weave vase grown with Collar, upright, the solid goes from 5,570 triangles with visible facets to 20,136 (Light) or 76,256 (Strong), smooth, and still watertight.

@@ -4,9 +4,9 @@ Growth Studio is a browser app for differential growth. Start from a flat disk o
 
 **Use it online:** https://gil336699.github.io/growth-studio/
 
-![Growth Studio demo: the Bloom preset is applied to an imported vase and Play growth is pressed. The rim grows into lobes as the view orbits. Then, in the File tab, Add thickness turns the sheet into a white solid with a 3 mm wall on the outside, the rim edge switches between square, soft and round in a close-up, and the solid is exported as an STL.](docs/demo.gif)
+![Growth Studio demo: the Collar preset is applied to an uploaded vase, and P turns on the print check, which colors the vase green where it prints and yellow where it only just prints. Play growth grows a wide brim that droops and turns red where it needs support. In the File tab, Add thickness gives it a 1.2 mm wall, and the bar above the view reads "Needs support 3.2%". From below turns the view to look up at the red under the brim and the round bottom rim. After Reset, the Collar, upright preset grows the same flare with gravity pulling up, so it stands up in pleats, and the bar reads "Needs support 0.4%". From below, only the round bottom rim is red.](docs/demo.gif)
 
-The demo is sped up 10 times while the vase grows. [Watch it in HD (MP4)](docs/demo.mp4).
+The demo is sped up 7 times while the vase grows. [Watch it in HD (MP4)](docs/demo.mp4).
 
 Everything runs in your browser. Models you upload and the shapes you grow stay on your computer.
 
