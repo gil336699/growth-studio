@@ -41,6 +41,35 @@ export function edgeUse(indices: ArrayLike<number>, vertices: number) {
   return { faces, open, crowded }
 }
 
+// Splits a closed mesh where bodies exported together touch along an edge, so that more than two faces share it: the
+// pieces its other edges join each become a body with its own copies of the points they share. Returns null when a
+// piece isn't closed: where the shared edges close into a loop, as around a face whose outline both bodies' meshes have
+// in common, the loop cuts that face off from its body.
+export function splitTouching(positions: ArrayLike<number>, indices: ArrayLike<number>): { positions: Float32Array<ArrayBuffer>; indices: Uint32Array<ArrayBuffer>; pieces: number } | null {
+  const F = indices.length / 3, n = positions.length / 3
+  const { faces } = edgeUse(indices, n)
+  const parent = Int32Array.from({ length: F }, (_, i) => i)
+  const find = (a: number) => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a] } return a }
+  for (const list of faces.values()) if (list.length === 2) { const a = find(list[0]), b = find(list[1]); if (a !== b) parent[a] = b }
+  const piece = Int32Array.from({ length: F }, (_, f) => find(f))
+  // Every piece must use each of its edges exactly twice, a shared edge included.
+  for (const list of faces.values()) {
+    if (list.length === 2) continue
+    if (list.length === 1) return null
+    const uses = new Map<number, number>()
+    for (const f of list) uses.set(piece[f], (uses.get(piece[f]) ?? 0) + 1)
+    for (const count of uses.values()) if (count !== 2) return null
+  }
+  const ids = new Map<number, number>(), out: number[] = [], P: number[] = []
+  for (let f = 0; f < F; f++) for (let k = 0; k < 3; k++) {
+    const v = indices[f * 3 + k], key = piece[f] * n + v
+    let id = ids.get(key)
+    if (id === undefined) { id = P.length / 3; ids.set(key, id); P.push(positions[v * 3], positions[v * 3 + 1], positions[v * 3 + 2]) }
+    out.push(id)
+  }
+  return { positions: Float32Array.from(P), indices: Uint32Array.from(out), pieces: new Set(piece).size }
+}
+
 // Turns a closed mesh's faces so every edge is run once each way, and each piece faces outward. CAD exports sometimes
 // turn a few faces the wrong way, which would make a solid that slicers read as inside out in places. Returns null when
 // an edge isn't shared by exactly two faces, or when the faces can't agree (a one-sided surface).
@@ -88,14 +117,33 @@ export function orientClosed(positions: ArrayLike<number>, indices: ArrayLike<nu
   pieces.forEach((piece, i) => {
     let depth = 0
     if (pieces.length > 1) {
-      const f = piece[0] * 3, x = (positions[I[f] * 3] + positions[I[f + 1] * 3] + positions[I[f + 2] * 3]) / 3
-      const y = (positions[I[f] * 3 + 1] + positions[I[f + 1] * 3 + 1] + positions[I[f + 2] * 3 + 1]) / 3
-      const z = (positions[I[f] * 3 + 2] + positions[I[f + 1] * 3 + 2] + positions[I[f + 2] * 3 + 2]) / 3
+      // A point just inside the piece, behind its largest face. The face's own centre can lie flat against another
+      // body, and a ray from there counts that body's face as crossed or not by chance: a block lying under a plate
+      // opened inside out.
+      let best = piece[0], area = -1
+      for (const f of piece) {
+        const [nx, ny, nz] = faceNormal(positions, I, f), length = Math.hypot(nx, ny, nz)
+        if (length > area) { area = length; best = f }
+      }
+      const f = best * 3, [nx, ny, nz] = faceNormal(positions, I, best)
+      // The piece faces outward when its volume is positive, so inside is against its faces' normals; the step is a
+      // ten-thousandth of the face's size.
+      const step = area > 0 ? (volumes[i] < 0 ? 1 : -1) * 1e-4 / Math.sqrt(area) : 0
+      const x = (positions[I[f] * 3] + positions[I[f + 1] * 3] + positions[I[f + 2] * 3]) / 3 + nx * step
+      const y = (positions[I[f] * 3 + 1] + positions[I[f + 1] * 3 + 1] + positions[I[f + 2] * 3 + 1]) / 3 + ny * step
+      const z = (positions[I[f] * 3 + 2] + positions[I[f + 1] * 3 + 2] + positions[I[f + 2] * 3 + 2]) / 3 + nz * step
       pieces.forEach((other, j) => { if (j !== i && inside(positions, I, other, x, y, z)) depth++ })
     }
     if ((volumes[i] < 0) !== (depth % 2 === 1)) for (const f of piece) { const b = I[f * 3 + 1]; I[f * 3 + 1] = I[f * 3 + 2]; I[f * 3 + 2] = b }
   })
   return I
+}
+
+// A face's normal, as long as twice its area.
+function faceNormal(P: ArrayLike<number>, I: ArrayLike<number>, f: number): [number, number, number] {
+  const a = I[f * 3] * 3, b = I[f * 3 + 1] * 3, c = I[f * 3 + 2] * 3
+  const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2], wx = P[c] - P[a], wy = P[c + 1] - P[a + 1], wz = P[c + 2] - P[a + 2]
+  return [uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx]
 }
 
 // Whether a point is inside a closed piece: an odd number of its faces cross a ray from the point (Möller–Trumbore),

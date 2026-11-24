@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { readGrowthStl } from '../physics/growthStl'
-import { edgeProblems, edgeUse, orientClosed, signedVolume } from './meshCheck'
+import { edgeProblems, edgeUse, orientClosed, signedVolume, splitTouching } from './meshCheck'
 import { ballTriangles, stl } from './testStl'
 
 // A box with outward-facing triangles, Y up, shifted by dx.
@@ -80,5 +80,28 @@ describe('orientClosed', () => {
     expect(use.open).toBe(0)
     expect(use.crowded).toBe(0)
     expect(orientClosed(Array.from({ length: 18 }, (_, i) => Math.sin(i)), indices)).toBeNull()
+  })
+})
+
+describe('splitTouching', () => {
+  it('gives bodies that touch along an edge their own points, and refuses a piece left open', () => {
+    // Two unit boxes that meet along one edge, the second one along and one up, welded by position: that edge has four
+    // faces.
+    const a = box(), b = box(1)
+    const positions = [...a.positions, ...b.positions.map((x, i) => i % 3 === 2 ? x + 1 : x)]
+    const ids = new Map<string, number>(), welded: number[] = [], map: number[] = []
+    for (let v = 0; v < positions.length / 3; v++) {
+      const key = positions.slice(v * 3, v * 3 + 3).join(',')
+      if (!ids.has(key)) { ids.set(key, welded.length / 3); welded.push(...positions.slice(v * 3, v * 3 + 3)) }
+      map.push(ids.get(key)!)
+    }
+    const indices = [...a.indices, ...b.indices.map(i => i + 8)].map(i => map[i])
+    expect(edgeUse(indices, welded.length / 3).crowded).toBe(1)
+    const split = splitTouching(welded, indices)!
+    expect(split.pieces).toBe(2)
+    expect(split.positions.length / 3).toBe(16)
+    expect(edgeProblems(split.indices)).toBe(0)
+    // An extra face on three of the box's edges leaves a piece that isn't closed, so the mesh can't be split.
+    expect(splitTouching(a.positions, [...a.indices, 0, 1, 2])).toBeNull()
   })
 })

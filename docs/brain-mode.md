@@ -57,8 +57,9 @@ Switching mid-growth doesn't give exactly the shape a fresh start at that size w
 ## Uploading a closed shape
 
 1. Read the STL, centre it and turn it Y-up. Scale it to radius 1; its own millimeters are kept for display and export.
-2. Check that it's one clean solid. Every edge must be shared by two faces. Faces a CAD export turned the wrong way are turned back. Each piece faces out of the volume it encloses, or into it when it lies inside another piece, as a sealed hollow's inner wall does. Nothing is rebuilt, so thin walls and designed edges stay.
-   - Edges shared by more than two faces, where bodies exported together touch, are refused, with how to combine the bodies.
+2. Check that it's one clean solid. Every edge must be shared by two faces. Faces a CAD export turned the wrong way are turned back. Each piece faces out of the volume it encloses, or into it when it lies inside another piece, as a sealed hollow's inner wall does. That is tested from a point just inside the piece, behind its largest face, so a body lying flat on another isn't taken for a hollow. Nothing is rebuilt, so thin walls and designed edges stay.
+   - Where bodies exported together touch along an edge, so that more than two faces share it, each body opens as its own closed piece, with its own copies of the shared points. Where bodies overlap or touch along a line or over an area, the starting surface crosses itself, so the card says so and offers Grow anyway; bodies that meet only at a point don't count.
+   - Where the shared edges close into a loop, as around a face whose outline both bodies' meshes have in common, the loop cuts that face off from each body, so no body is closed. The STL is refused, with how to combine the bodies.
    - A closed surface whose faces can't all face outward, such as a one-sided surface, is refused.
    - An STL whose open edges add up to at most a tenth of its bounding sphere's circumference looks almost closed, like a CAD export with a hairline gap. It grows as an open surface from its gaps, with a note saying how to close them. The length is measured, not the share of edges, so a finely meshed cup with a real opening isn't mistaken for one.
 3. Prepare it as any upload: long edges are split to the Fold size's split length, up to 300 new vertices; flat patches are remeshed and triangles balanced.

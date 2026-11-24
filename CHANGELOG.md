@@ -1,5 +1,12 @@
 # Growth Studio Changelog
 
+## 0.16.1 2026-11-24
+
+- **STLs whose bodies touch open again.** 0.16.0 refused some STLs whose bodies, exported together, touch, such as a keychain tag whose lettering lies on its plate; 0.15.0 opened them. Now each body opens as its own closed solid, with its own copies of the points they share.
+  - The card then says the surface crosses itself, as it does wherever bodies overlap or touch along a line or over an area, and offers Grow anyway. For that tag it counts 3,818 places; for two boxes meeting only along an edge, 342. Before 0.16.0, brain mode's voxel rebuild merged such bodies without saying so. Combining the bodies in your CAD tool gives a cleaner print.
+  - Bodies are still refused, with how to combine them, when the edges they share close into a loop, as around a face whose outline both bodies' meshes have in common.
+- **Bodies lying on each other face outward.** A body whose first face in the STL lay flat on another body could open inside out, as if it were a hollow: a 16 × 8 × 10 mm block under a 20 × 20 × 10 mm plate opened as 2,720 mm³ in all instead of 5,280. Now each body is checked from a point just inside it.
+
 ## 0.16.0 2026-11-24
 
 - **One tool instead of Sheet and Brain mode.** The Starting surface card has three starting surfaces: **Default disk**, **Built-in brain** and **Upload STL**. Before, a Sheet / Brain switch chose between two modes, each with its own upload button.
