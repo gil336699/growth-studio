@@ -3,7 +3,7 @@ import { DISK_DEFAULTS, type DiskSnapshot } from '../physics/growingDisk'
 import { validLayers } from '../physics/growthLayers'
 import { RIM_ROUNDNESS, WALL_SHIFT, type RimProfile, type WallSide } from './thicken'
 import { PRINT_ANGLE_DEFAULT, PRINT_ANGLE_RANGE } from './printCheck'
-import { SMOOTH_PASSES, type SmoothLevel } from './smoothSheet'
+import { SHARP_ANGLE, SMOOTH_PASSES, type SmoothLevel } from './smoothSheet'
 
 // Kept from Growth Lab so projects saved there still open here.
 const SCHEMA = 'growth-lab/disk-project'
@@ -16,13 +16,13 @@ export type Phase = { mode: 'grow' | 'relax'; steps: number }
 export type StopAt = { kind: 'none' | 'size' | 'step' | 'strain'; value: number }
 // Wall for printing, in millimeters. size is the default disk's longest side; an STL keeps its own millimeters.
 // flatBase and baseCut cut a closed shape's outer layer flat at the bottom, baseCut mm up, so it sits on a print bed.
-// smooth smooths an open sheet before its wall is added, and bevel rounds its sharp edges: 0 keeps them sharp, 1 rounds
-// them like the rest of the surface.
-export type Thickness = { on: boolean; wall: number; side: WallSide; rim: RimProfile; size: number; show: boolean; flatBase: boolean; baseCut: number; smooth: SmoothLevel; bevel: number }
+// smooth smooths an open sheet before its wall is added. Edges that bend more than sharpAngle degrees in the starting
+// shape stay sharp, and bevel rounds them: 0 keeps them sharp, 1 rounds them like the rest of the surface.
+export type Thickness = { on: boolean; wall: number; side: WallSide; rim: RimProfile; size: number; show: boolean; flatBase: boolean; baseCut: number; smooth: SmoothLevel; bevel: number; sharpAngle: number }
 
 export const BRUSH_DEFAULTS: BrushSettings = { radius: 0.15, strength: 1, hardness: 0, symmetry: 'off', copies: 6 }
 export const STOP_DEFAULTS: StopAt = { kind: 'none', value: 2 }
-export const THICKNESS_DEFAULTS: Thickness = { on: false, wall: 1.2, side: 'both', rim: 'round', size: 100, show: true, flatBase: false, baseCut: 5, smooth: 'off', bevel: 0 }
+export const THICKNESS_DEFAULTS: Thickness = { on: false, wall: 1.2, side: 'both', rim: 'round', size: 100, show: true, flatBase: false, baseCut: 5, smooth: 'off', bevel: 0, sharpAngle: SHARP_ANGLE }
 
 type ProjectSource = Omit<GrowthStlSource, 'positions' | 'indices'> & { positions: number[]; indices: number[] }
 export type DiskProject = {
@@ -101,6 +101,7 @@ const validThickness = (thickness: Thickness) => typeof thickness === 'object' &
   && (thickness.smooth === undefined || (typeof thickness.smooth === 'string' && Object.hasOwn(SMOOTH_PASSES, thickness.smooth)))
   // Projects from before 0.12.0 have no bevel; see deserializeDiskProject.
   && (thickness.bevel === undefined || finite(thickness.bevel, 0, 1))
+  && (thickness.sharpAngle === undefined || finite(thickness.sharpAngle, 1, 179))
 
 export function deserializeDiskProject(json: string) {
   const project = JSON.parse(json) as DiskProject & { schema: unknown; version: unknown }
@@ -160,10 +161,11 @@ export function deserializeDiskProject(json: string) {
     printAngle: project.printAngle ?? PRINT_ANGLE_DEFAULT,
     // Growth Lab's version 1 had no thickness.
     // Projects from before 0.12.0 have no bevel. Those smoothed with 0.11 open at 100%, so they export as they did then;
-    // the rest open with sharp edges kept sharp.
+    // the rest open with sharp edges kept sharp. Projects from 0.12.0 have a bevel but no angle: they used 40°.
     thickness: legacy ? THICKNESS_DEFAULTS : {
       ...THICKNESS_DEFAULTS, ...project.thickness,
       bevel: project.thickness?.bevel ?? (project.thickness?.smooth && project.thickness.smooth !== 'off' ? 1 : 0),
+      sharpAngle: project.thickness?.sharpAngle ?? (project.thickness?.bevel !== undefined ? 40 : SHARP_ANGLE),
     },
     source: source && { ...source, positions: Float32Array.from(source.positions), indices: Uint32Array.from(source.indices) },
   }

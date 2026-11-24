@@ -272,3 +272,35 @@ describe('bevel', () => {
     expect(sliver.length).toBe(0)
   })
 })
+
+describe('sharp edge angle', () => {
+  // A base with a chamfer, like a CAD pen holder: the bottom meets a 45° chamfer 2 mm tall (a 45° bend), and the chamfer
+  // meets a wall leaning out 10° (a 35° bend). Returns the mesh and the vertex numbers of the chamfer's top edge.
+  function chamferedBase(ring = 48, R = 20, c = 2, H = 30, rows = 6) {
+    const positions: number[] = [0, 0, 0], indices: number[] = [], rings = 4, lean = Math.tan(10 * Math.PI / 180)
+    const radius: number[] = [], height: number[] = []
+    for (let r = 1; r <= rings; r++) { radius.push(R * r / rings); height.push(0) }
+    radius.push(R + c); height.push(c)
+    for (let h = 1; h <= rows; h++) { radius.push(R + c + lean * H * h / rows); height.push(c + H * h / rows) }
+    radius.forEach((rr, j) => { for (let k = 0; k < ring; k++) { const a = 2 * Math.PI * k / ring; positions.push(rr * Math.cos(a), rr * Math.sin(a), height[j]) } })
+    const at = (j: number, k: number) => 1 + j * ring + (k % ring)
+    for (let k = 0; k < ring; k++) indices.push(0, at(0, k), at(0, k + 1))
+    for (let j = 0; j + 1 < radius.length; j++) for (let k = 0; k < ring; k++) indices.push(at(j, k), at(j + 1, k), at(j + 1, k + 1), at(j, k), at(j + 1, k + 1), at(j, k + 1))
+    const top = [...Array(ring).keys()].map(k => at(rings, k))
+    return { positions: Float32Array.from(positions), indices: Uint32Array.from(indices), top, c }
+  }
+
+  it('keeps both edges of a chamfer sharp at the default 30°, where 40° rounded the upper one', () => {
+    const base = chamferedBase()
+    const at30 = sharpEdges(base.positions, base.indices), at40 = sharpEdges(base.positions, base.indices, 40)
+    expect(at30.length / 2).toBe(96) // both edges of the chamfer, 48 segments each
+    expect(at40.length / 2).toBe(48) // only the one at the bed
+    // How far the chamfer's top edge moves up or down when smoothed: a sharp edge stays at its height.
+    const drift = (creases: Uint32Array) => {
+      const P = smoothSheet(base.positions, base.indices, 2, { creases, bevel: 0 }).positions
+      return Math.max(...base.top.map(v => Math.abs(P[v * 3 + 2] - base.c)))
+    }
+    expect(drift(at30)).toBeLessThan(1e-5)
+    expect(drift(at40)).toBeGreaterThan(0.1)
+  })
+})

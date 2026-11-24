@@ -2,6 +2,7 @@ import { expect, it } from 'vitest'
 import { createGrowingDisk, DISK_DEFAULTS } from '../physics/growingDisk'
 import { createLayer } from '../physics/growthLayers'
 import { deserializeDiskProject, serializeDiskProject, THICKNESS_DEFAULTS, type DiskProject } from './diskProject'
+import { SHARP_ANGLE } from './smoothSheet'
 
 const settings = { relaxing: false, view: 'triangles' as const, speed: 3, batch: 100, importSpeed: 1, importBatch: 10 }
 const sheet = () => ({
@@ -113,7 +114,7 @@ it('opens projects saved before newer mechanics settings existed', () => {
 it('keeps the print thickness settings, and opens older projects with thickness off', () => {
   const disk = createGrowingDisk()
   const base = { source: null, disk: disk.snapshot(), mechanics: DISK_DEFAULTS, revision: 0, ...settings }
-  const thickness = { on: true, wall: 0.8, side: 'inside' as const, rim: 'soft' as const, size: 140, show: false, flatBase: true, baseCut: 3.5, smooth: 'strong' as const, bevel: 0.35 }
+  const thickness = { on: true, wall: 0.8, side: 'inside' as const, rim: 'soft' as const, size: 140, show: false, flatBase: true, baseCut: 3.5, smooth: 'strong' as const, bevel: 0.35, sharpAngle: 25 }
   expect(deserializeDiskProject(serializeDiskProject({ ...base, thickness })).thickness).toEqual(thickness)
   expect(deserializeDiskProject(serializeDiskProject(base)).thickness).toEqual(THICKNESS_DEFAULTS)
   expect(() => deserializeDiskProject(serializeDiskProject({ ...base, thickness: { ...thickness, rim: 'chamfer' as never } }))).toThrow('invalid design data')
@@ -138,15 +139,22 @@ it('keeps the print thickness settings, and opens older projects with thickness 
   expect(deserializeDiskProject(serializeDiskProject({ ...base, thickness: noSmooth as never })).thickness).toEqual({ ...thickness, smooth: 'off' })
   expect(() => deserializeDiskProject(serializeDiskProject({ ...base, thickness: { ...thickness, smooth: 'extra' as never } }))).toThrow('invalid design data')
   expect(() => deserializeDiskProject(serializeDiskProject({ ...base, thickness: { ...thickness, smooth: ['light'] as never } }))).toThrow('invalid design data')
-  // Saved by 0.11, before bevel: smoothed, it opens at 100% so it exports as it did; unsmoothed, with sharp edges kept.
+  // Saved by 0.11, before bevel and the angle: smoothed, it opens at 100% so it exports as it did; unsmoothed, with sharp
+  // edges kept; either way at the default angle.
   const noBevel: Partial<typeof thickness> = { ...thickness }
   delete noBevel.bevel
-  expect(deserializeDiskProject(serializeDiskProject({ ...base, thickness: noBevel as never })).thickness).toEqual({ ...thickness, bevel: 1 })
-  expect(deserializeDiskProject(serializeDiskProject({ ...base, thickness: { ...noBevel, smooth: 'off' } as never })).thickness).toEqual({ ...thickness, smooth: 'off', bevel: 0 })
+  delete noBevel.sharpAngle
+  expect(deserializeDiskProject(serializeDiskProject({ ...base, thickness: noBevel as never })).thickness).toEqual({ ...thickness, bevel: 1, sharpAngle: SHARP_ANGLE })
+  expect(deserializeDiskProject(serializeDiskProject({ ...base, thickness: { ...noBevel, smooth: 'off' } as never })).thickness).toEqual({ ...thickness, smooth: 'off', bevel: 0, sharpAngle: SHARP_ANGLE })
   const neither: Partial<typeof thickness> = { ...noBevel }
   delete neither.smooth
-  expect(deserializeDiskProject(serializeDiskProject({ ...base, thickness: neither as never })).thickness).toEqual({ ...thickness, smooth: 'off', bevel: 0 })
+  expect(deserializeDiskProject(serializeDiskProject({ ...base, thickness: neither as never })).thickness).toEqual({ ...thickness, smooth: 'off', bevel: 0, sharpAngle: SHARP_ANGLE })
   for (const bad of [-0.1, 1.5, '0.5', Number.NaN]) expect(() => deserializeDiskProject(serializeDiskProject({ ...base, thickness: { ...thickness, bevel: bad as never } }))).toThrow('invalid design data')
+  // Saved by 0.12.0, with a bevel but no angle: it opens at the 40° that version used, so it exports as it did.
+  const noAngle: Partial<typeof thickness> = { ...thickness }
+  delete noAngle.sharpAngle
+  expect(deserializeDiskProject(serializeDiskProject({ ...base, thickness: noAngle as never })).thickness).toEqual({ ...thickness, sharpAngle: 40 })
+  for (const bad of [0, 180, '30', Number.NaN]) expect(() => deserializeDiskProject(serializeDiskProject({ ...base, thickness: { ...thickness, sharpAngle: bad as never } }))).toThrow('invalid design data')
 })
 
 it('keeps the print check and its support angle, and opens older projects at the 45° default', () => {

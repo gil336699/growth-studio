@@ -9,10 +9,13 @@ export type SmoothLevel = 'off' | 'light' | 'strong'
 export const SMOOTH_PASSES: Record<SmoothLevel, number> = { off: 0, light: 1, strong: 2 }
 // The sheet after smoothing stays under this many triangles, so the solid and its checks stay quick in a browser.
 export const SMOOTH_MAX_TRIANGLES = 400_000
-// An edge where the starting shape bends more than this is a designed sharp edge. On curved surfaces, typical CAD
-// exports bend less than this from face to face (the weave vase at most 22.5°), and a flat bottom meets its wall at 90°.
-// A very coarse mesh can bend more; Bevel at 100% then smooths it all, as before.
-export const SHARP_ANGLE = 40
+// By default, an edge where the starting shape bends more than this is a designed sharp edge (Blender's auto-smooth
+// default is 30° too). On curved surfaces, CAD exports bend less from face to face: the weave vase at most 22.5°, a pen
+// holder from Fusion at most 13°. Designed edges bend more: a flat bottom meets its wall at about 90°, and that pen
+// holder's bottom chamfer bends 33–37° and 43–47°. The app lets the user change it, for softer edges or coarser meshes.
+export const SHARP_ANGLE = 30
+// The range the app offers for that angle, in degrees.
+export const SHARP_ANGLE_RANGE: [number, number] = [10, 60]
 
 export type SmoothSheet = {
   positions: Float32Array

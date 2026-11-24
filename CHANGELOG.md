@@ -1,5 +1,14 @@
 # Growth Studio Changelog
 
+## 0.13.0 2026-11-23
+
+- **Sharp edge angle.** A new slider above Bevel sets how sharp an edge must be in the starting shape to stay sharp when smoothing: 30° by default, from 10° to 60°. Before, it was a fixed 40°.
+  - On a pen holder with a 3 mm chamfer around its bottom, the chamfer bends 45° at the bed and 35° at the wall. 0.12.0 kept only the edge at the bed, and Strong smoothing moved the outside of the chamfer's top edge by up to 0.5 mm. At 30° both edges stay sharp: the exported solid matches the unsmoothed one within 0.07 mm.
+  - Lower it to catch softer edges; raise it to smooth the facets of a coarse mesh.
+  - The tooltip says how many mesh edges are sharp at the chosen angle.
+  - The weave vase (at most 22.5° between faces) and the default disk still have no sharp edges at 30°, so they smooth as before.
+- Projects save the angle. Projects saved with 0.12.0 open at 40°, so they export as before.
+
 ## 0.12.0 2026-11-23
 
 - **Smooth surface keeps sharp edges.** Edges that bend more than 40° in the starting shape, such as the edge around a vase base's flat bottom, now stay sharp when you smooth, so a print sits flat on the bed with a crisp bottom edge. Before, smoothing rounded them. On a vase base with a flat bottom 60 mm across, grown with Lettuce edge and given a 1.2 mm wall, the Light-smoothed solid stood on a circle 59 mm across instead of 61 mm.
