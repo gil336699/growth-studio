@@ -161,6 +161,21 @@ it('holds the parts that do not grow in place with Hold still, without gravity',
   expect(free.moved).toBeGreaterThan(0)
 })
 
+it('adds a starting erase on top of the paint, which brush Undo leaves', () => {
+  const disk = createGrowingDisk()
+  expect(disk.hasField).toBe(true)
+  const n = disk.field.length
+  // Erase half the disk, then all of it at half strength: each vertex keeps the most erase it was given.
+  disk.addErase(Float32Array.from({ length: n }, (_, v) => v % 2))
+  expect([...disk.field].filter((_, v) => v % 2 === 1).every(weight => weight === 0)).toBe(true)
+  disk.addErase(new Float32Array(n).fill(0.5))
+  expect(disk.paint.erase.every((value, v) => value === (v % 2 ? 1 : 0.5))).toBe(true)
+  disk.undoBrush()
+  expect(disk.paint.erase[1]).toBe(1)
+  disk.addErase(new Float32Array(n).fill(1))
+  expect(disk.hasField).toBe(false)
+})
+
 it('repels a vertex from a nearby face even when all three face vertices are far away', () => {
   const positions = Float32Array.of(
     -1, 0, -1, 1, 0, -1, 0, 0, 1,

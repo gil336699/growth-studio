@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createGrowingDisk } from '../physics/growingDisk'
-import { sharpEdges, SMOOTH_MAX_TRIANGLES, smoothPassesFor, smoothSheet } from './smoothSheet'
+import { GROWN_LIMIT, sharpEdges, SMOOTH_MAX_TRIANGLES, smoothPassesFor, smoothSheet, ungrownEdges } from './smoothSheet'
 import { solidLeaks, thicken } from './thicken'
 
 // Edges used by one face: the sheet's open rims.
@@ -146,6 +146,15 @@ const furthest = (a: ArrayLike<number>, b: ArrayLike<number>) => {
 }
 
 describe('sharp edges', () => {
+  it('keeps only the sharp edges that have not grown, as designed edges', () => {
+    // Three creases: one where nothing grew, one half grown past the limit, one just at it.
+    const creases = [0, 1, 2, 3, 4, 5]
+    const growth = [0, 0, 0, 0.3, GROWN_LIMIT, GROWN_LIMIT]
+    expect(Array.from(ungrownEdges(creases, growth))).toEqual([0, 1, 4, 5])
+    // Vertices added by splits after the growth was read count as not grown.
+    expect(Array.from(ungrownEdges([7, 8], growth))).toEqual([7, 8])
+  })
+
   it('finds the edge around a flat bottom and nothing on smooth or flat sheets', () => {
     const base = vaseBase(), creases = sharpEdges(base.positions, base.indices)
     expect(creases.length / 2).toBe(24)

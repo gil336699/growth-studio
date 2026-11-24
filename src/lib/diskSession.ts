@@ -203,6 +203,7 @@ export function createDiskSession(disk: GrowingDisk, options: {
     },
     undoBrush() { if (core) core.undoBrush(); else send({ kind: 'undo' }) },
     clearPaint() { if (core) core.clearPaint(); else send({ kind: 'clearPaint' }) },
+    addErase(values: Float32Array) { if (core) core.addErase(values); else send({ kind: 'erase', values }) },
     // Grow anyway. Only offered before the first playback, while the crossings still block it.
     ignoreStartingOverlaps() { core?.ignoreStartingOverlaps() },
     // The starting-shape point under a click on the grown surface, for placing point and line layers.

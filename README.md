@@ -1,6 +1,6 @@
 # Growth Studio
 
-Growth Studio is a browser app for differential growth. Start from a flat disk or an open STL such as a Fusion vase base, decide where and when it grows, and watch the rim ruffle and fold. Or switch to **brain mode** and grow a closed shape, such as the built-in brain or your own STL, until it folds like a brain. Save editable projects, and export OBJ or STL back to CAD, or as a solid with walls and rounded rims, ready to print. The **print check** colors what a slicer would need to support, so you can grow shapes that print without it.
+Growth Studio is a browser app for differential growth. Start from a flat disk or an open STL such as a Fusion vase base, decide where and when it grows, and watch the rim ruffle and fold. Or start from a closed shape, the built-in brain or your own STL, and its whole surface folds like a brain. Save editable projects, and export OBJ or STL back to CAD, or as a solid with walls and rounded rims, ready to print. The **print check** colors what a slicer would need to support, so you can grow shapes that print without it.
 
 **Use it online:** https://gil336699.github.io/growth-studio/
 
@@ -32,7 +32,7 @@ Each push to `main` builds the app and publishes it to GitHub Pages through `.gi
 The 3D view fills the window, and the controls float above it on translucent glass, in the style of Apple's Liquid Glass. The look follows the system's light or dark appearance, and its Reduce transparency and Increase contrast settings.
 
 - **Top left.** The app name and the **?** button for shortcuts and the quick start.
-- **Left panel.** The starting surface, with the **Sheet / Brain** switch, Upload STL, Default disk or the brain's settings, and any warnings about the mesh. Below it, the **Growth field** tab holds the growth layers and the **Simulation** tab holds growth rate, stopping, gravity, contact, and advanced settings.
+- **Left panel.** The starting surface, **Default disk**, **Built-in brain** or **Upload STL**, and any warnings about the mesh. Below it, the **Growth field** tab holds the growth layers and the **Simulation** tab holds growth rate, stopping, gravity, contact, and advanced settings.
 - **Top of the 3D view.** Tools (Orbit, Paint, Erase, Smooth, Undo) on the left. Choosing a brush tool shows its size, strength, hardness, and symmetry just below. Color overlay, mesh view, ghost, and framing on the right. Choosing **Print check** shows the support angle and what it counted just below.
 - **Bottom of the 3D view.** The timeline dock: **Play growth**, **Step**, and **Reset**, the status, scrubbing, snapshots, and phases.
 - **Right panel.** **Form** shows measurements, Fold size, and stats. **Explore** has presets and variants. **File** saves, opens, and exports, and shows a dot when there are unsaved changes.
@@ -47,7 +47,7 @@ On tablets the 3D view sits on top, with both panels below it. On phones everyth
 
 ## Workflow
 
-1. **Starting surface.** Use the default disk, or choose **Upload STL**. Open rims are detected automatically. For a closed shape that folds like a brain, switch to **Brain** (see [Brain mode](#brain-mode)).
+1. **Starting surface.** Use the default disk, the built-in brain, or **Upload STL**. An STL is used as it is: open rims are detected automatically, and a closed shape grows over its whole surface with Brain folds (see [Brain folds](#brain-folds)).
 2. **Growth layers.** Decide where growth comes from. Each layer has a strength, its own settings, and optional timing.
 3. **Brush.** Pick Paint, Erase, or Smooth above the 3D view and brush growth onto the model, even while it grows.
 4. **Grow.** Press **Play growth** in the timeline dock, step in batches, or run a recipe of phases. **Relax only** lets the form settle without adding growth.
@@ -57,31 +57,30 @@ On tablets the 3D view sits on top, with both panels below it. On phones everyth
 
 The app asks before Reset, Upload STL, Default disk, or Open project would discard unsaved work. Growth Lab disk projects also open.
 
-## Brain mode
+## Brain folds
 
-Brain mode grows a closed shape the way a brain folds. The whole surface grows over a soft core, so the extra surface buckles into folds instead of inflating the shape, and an outer layer rounds the ridges and closes the grooves. It's based on Tallinen et al., "On the growth and form of cortical convolutions" (*Nature Physics*, 2016), where a gel copy of a smooth fetal brain folded in minutes.
+Brain folds grows a closed shape the way a brain folds. The whole surface grows over a soft core, so the extra surface buckles into folds instead of inflating the shape. It's based on Tallinen et al., "On the growth and form of cortical convolutions" (*Nature Physics*, 2016), where a gel copy of a smooth fetal brain folded in minutes.
 
-1. Switch the Starting surface card from **Sheet** to **Brain**. The built-in brain loads: a smooth brain made from an MRI scan, 150 mm long.
+1. Choose **Built-in brain** in the Starting surface card: a smooth brain made from an MRI scan, 150 mm long. Or choose **Upload STL** and pick a closed shape of your own.
 2. Press **Play growth**. It folds and stops at step 420, with the folds from the Instagram reel.
-3. Scrub the timeline back to watch it unfold, or export it: **File › Export STL** writes the filled brain with its outer layer, watertight and in millimeters.
+3. Scrub the timeline back to watch it unfold, or export it: **File › Export STL** writes its print solid, watertight and in millimeters.
 
 | Setting | Effect |
 | --- | --- |
-| Built-in brain | Loads the built-in brain again. |
-| Upload STL | Loads your own closed shape. Brain mode rebuilds it as one smooth, closed surface, scaled so the recipe gives the same fold size, and keeps its millimeters. Walls thinner than the rebuild's grid, about the fold size, don't survive it. A shape that mostly disappears is refused with what to try, and one that loses part of itself loads with a note saying how much was kept. An open surface, such as a vase, is refused. For both, Sheet mode with the Brain folds preset keeps the mesh as it is. Both refusals have a button, **Open in Sheet mode with Brain folds**, that does this in one click. A thin-walled shape's walls start intact there, but their two faces fold separately, so check the thickness after growth. If the STL stands on a flat bottom, the bottom and the lowest fifth of the wall don't grow and are held still, so it keeps standing flat on the bed: a pen holder grown 300 steps kept all 55 cm² of its flat bottom, where the preset alone left none of it flat. |
-| Fold size | **Fine**, **Medium** or **Broad**: more, smaller folds, or fewer, wider ones. Medium is the reel. Before growth, it rebuilds the starting shape at a finer or coarser mesh. Once the brain has grown, it keeps its folds and the timeline, and grows on at the new size from that step. If growth had stopped at Stop at, the stop moves 140 steps on. Reset goes back to a smooth brain at the current size. |
-| Smoothing | For an upload: **Light**, the default, keeps it close to the STL and its thin walls; **Medium** rounds off small bumps; **Strong** smooths an already folded brain scan back into a smooth one. |
+| Built-in brain | Loads the built-in brain with the reel's recipe, at the last Fold size chosen. |
+| Upload STL | A closed STL is used as it is, so thin walls and designed edges stay, and grows with the Brain folds recipe. Faces turned the wrong way are turned back, and a sealed hollow's inner wall keeps facing into the hollow. Two bodies exported together that touch are refused, with how to combine them. An STL whose open edges are short, like a hairline gap, opens as an open surface, with a note saying how to close them. If it stands on a flat bottom, the bottom and the lowest fifth of the wall don't grow and are held still, also after Reset, so it keeps standing flat on the bed: a pen holder with 2.4 mm walls, grown 161 steps, still stood on all 55 cm² of its flat bottom. |
+| Fold size (Form) | **Fine**, **Medium** or **Broad**: more, smaller folds, or fewer, wider ones. Medium is the reel. It shows whenever something grows over the whole surface. It changes only the split length, so at any time growth carries on at the new size, from where it is. The lengths scale to the shape's size, so a size gives folds of the same size compared with any shape. Only the built-in brain, before it grows, is swapped for the brain meshed at that size. If growth had stopped at Stop at, the stop moves 140 steps on. |
 
-Brain mode sets everything else from the reel's recipe, and each setting can still be changed:
+The recipe sets everything else, and each setting can still be changed. **Brain folds** under Explore › Presets applies it to any shape, at the chosen Fold size, and holds a flat bottom still the same way.
 
 | Setting | Value |
 | --- | --- |
-| Growth field | A **Whole surface** layer named Cortex. On the built-in brain, the inner walls between the halves and the middle of the base are erased, as in the paper. |
+| Growth field | A **Whole surface** layer. On the built-in brain, the inner walls between the halves and the middle of the base are erased, as in the paper. |
 | Core | Firmness 0.5%, growth 10% |
 | Bend stiffness | 20% |
 | Stop at | Step 420 |
 | Mesh detail limit | 3.5× |
-| Outer layer | 2.7 mm on the built-in brain, about a real cortex's thickness |
+| Print solid | On, smoothed once (Light), sharp edges kept |
 
 The built-in brain is based on "Brain Model" by Nevit Dilmen on NIH 3D ([3DPX-002739](https://3d.nih.gov/entries/3dpx-002739)), licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). It was smoothed, the cerebellum and brainstem were removed, and the halves were joined. See [docs/brain-mode.md](docs/brain-mode.md) for the design.
 
@@ -107,7 +106,7 @@ Every layer can start and stop at timeline steps, and intensity keyframes ramp i
 
 | Setting | Effect |
 | --- | --- |
-| Smooth surface | **Off** adds the wall to the surface as it grew. **Light** smooths the sheet once before the wall is added: four times the triangles, and most facets gone. **Strong** smooths it twice: sixteen times the triangles, smooth even on a coarse sheet. Smoothing is Loop subdivision; open rims follow a smooth curve through their own points, so a flat bottom rim stays flat. Edges that bend more than the Sharp edge angle in the starting shape, 30° by default, such as the edge around a vase base's flat bottom, stay sharp, so the print still sits flat on the bed. A very coarse sheet whose facets bend more than that keeps them too, unless you raise Sharp edge angle or Bevel. Folds soften a little: the upright Collar's solid is about 0.5 mm narrower. A level that would pass 400,000 triangles is unavailable, and its button says why. |
+| Smooth surface | **Off** uses the surface as it grew. **Light** smooths it once, before the wall on a sheet: four times the triangles, and most facets gone. **Strong** smooths it twice: sixteen times the triangles, smooth even on a coarse sheet. Smoothing is Loop subdivision; open rims follow a smooth curve through their own points, so a flat bottom rim stays flat. Edges that bend more than the Sharp edge angle in the starting shape, 30° by default, such as the edge around a vase base's flat bottom, stay sharp where the surface hasn't grown, so the print still sits flat on the bed. Where it grew, they fold with the surface and are smoothed like the rest: kept sharp, the folded edges of a pen holder grown with Brain folds made its Light-smoothed solid cross itself in 18 places. A very coarse sheet whose facets bend more than that keeps them too, unless you raise Sharp edge angle or Bevel. Folds soften a little: the upright Collar's solid is about 0.5 mm narrower. A level that would pass 400,000 triangles is unavailable, and its button says why. |
 | Sharp edge angle | How sharp an edge must be in the starting shape to stay sharp when smoothing: 30° by default, from 10° to 60°. Lower it to catch softer edges, such as a shallow chamfer; raise it to smooth the facets of a coarse mesh. On a pen holder whose 3 mm bottom chamfer bends 45° at the bed and 35° at the wall, Strong smoothing at 40° moved the outside of the chamfer's top edge by up to 0.5 mm; at 30° the exported solid matches the unsmoothed one within 0.07 mm. The tooltip says how many mesh edges are sharp at that angle. Projects saved with 0.12.0 open at 40°, the rule that version used. |
 | Bevel sharp edges | Rounds those sharp edges: **0%** keeps them sharp, higher values round them more, and **100%** rounds them like the rest of the surface, as 0.11 did. On a vase base with a flat bottom 60 mm across, grown with Lettuce edge and given a 1.2 mm wall, the Light-smoothed solid stands on a circle 61 mm across at 0%, and about 59 mm from 50% up. The tooltip says how many mesh edges are sharp, and the status line under the solid says whether they're kept, beveled or rounded. With Smooth surface off, on a sheet too large to smooth, or on a shape with no sharp edges (the default disk, the weave vase), it's unavailable and says why. Projects saved with 0.11 that use smoothing open at 100%, so they export as before. |
 | Wall thickness | The total wall, 0.2 to 5 mm. Most filament printers need at least 0.8 mm, and resin printers about 0.5 mm. |
@@ -118,7 +117,7 @@ Every layer can start and stop at timeline steps, and intensity keyframes ramp i
 
 With Smooth surface off, every fold of the grown surface is kept: the wall is offset along the surface, not rebuilt. With it on, the wall follows the smoothed surface. Where folds come closer together, or bend more tightly, than the wall is thick, the wall passes through itself. The app checks for this after each change and colors those places pink. It also checks that the solid is closed, and says so if the STL pinches to a point or has faces turned inconsistently. Most slicers merge them; for a clean solid, use a thinner wall, or grow with a larger **Repel distance** so folds stay further apart.
 
-On a **closed shape**, such as a brain, Add thickness builds an **outer layer** instead: the inside is filled and a layer of the set thickness wraps the surface, half of it outside. Folds closer together than the layer merge, so Export writes one watertight solid in millimeters, with every edge shared by exactly two faces. The layer is built on a voxel grid in the background each time growth pauses, in a few seconds for a folded brain. While growth runs, the view shows a quick preview: the surface pushed out along its normals. **Flat base** cuts the solid flat at the bottom, **Base cut** mm up (5 mm by default), so a print stands on the bed without supports under it.
+On a **closed shape**, such as a brain, the switch is **Print solid**, since the shape is a solid already. Export writes the grown surface itself, smoothed with **Smooth surface**, **Sharp edge angle** and **Bevel sharp edges** as a sheet is, in millimeters. **Flat base** cuts it flat at the bottom, **Base cut** mm up (5 mm by default), so a print stands on the bed without supports under it; the cut is closed with a flat cap, its holes kept, so the solid stays watertight. Nothing is rebuilt or merged, so thin walls stay as they are and close folds stay two surfaces: folds closer than your nozzle width, about 0.4 mm, fuse in print, so keep **Repel distance** at least that. The app checks the solid each time growth pauses, as it checks a wall. On the built-in brain grown 142 steps, the Light-smoothed solid with a 5 mm flat base had 107,516 triangles, every edge shared by two faces, and stood on 10.8 cm². On a fully grown brain it builds in about 0.15 s, measured in Node.
 
 ## Print check
 
@@ -132,9 +131,9 @@ Choose **Print check** in the **Color** menu above the 3D view, or press **P**, 
 | Blue, **Touches the bed** | Faces straight down within 0.2 mm of the lowest point, Bambu Studio's first layer. |
 | Dark dot, **Low point** | Lower than everything around it, on a surface facing down, so it hangs in the air. It needs a support to start on, even when its sides are steep. |
 
-**Support angle** is counted up from the bed, as Bambu Studio and PrusaSlicer count it: 45° by default, the classic rule, and Bambu Studio's own default is 30°. Cura counts from vertical, so only 45° means the same in both. The bar below the menu says what was counted, for example "Needs support 15.1% · 6 low points in the air · 5.7 cm² on the bed" for the built-in brain's outer layer with a 5 mm flat base. **From below** turns the view to look up at the undersides, where supports go; **Frame** turns it back.
+**Support angle** is counted up from the bed, as Bambu Studio and PrusaSlicer count it: 45° by default, the classic rule, and Bambu Studio's own default is 30°. Cura counts from vertical, so only 45° means the same in both. The bar below the menu says what was counted, for example "Needs support 10.5% · 7 low points in the air · 55.3 cm² on the bed" for a pen holder grown 161 steps with Brain folds, as its Light-smoothed print solid. **From below** turns the view to look up at the undersides, where supports go; **Frame** turns it back.
 
-The check counts the surface the view shows: the solid or the outer layer when it's shown, otherwise the sheet, read as a wall with two sides, both of which count, so a sheet reads about as its solid will. Before the default disk grows, the crests of its starting ripple sit up to 0.3 mm above the bed, so a few of them show red. While growth runs it counts a few times a second, and growth is no slower for it: the Collar grew to its target in about 19 s with the check on or off.
+The check counts the surface the view shows: the solid or the print solid when it's shown, otherwise the sheet, read as a wall with two sides, both of which count, so a sheet reads about as its solid will. Before the default disk grows, the crests of its starting ripple sit up to 0.3 mm above the bed, so a few of them show red. While growth runs it counts a few times a second, and growth is no slower for it: the Collar grew to its target in about 19 s with the check on or off.
 
 To grow a vase that prints without supports, let it grow upward: under **Simulation › Gravity**, set **Strength** to 35% and **Tilt from down** to 180°, or use the **Collar, upright** preset. On the weave vase at 45°, with a 1.2 mm wall, the Collar needs support on 3.2% of its surface and the upright Collar on 0.4%, all of it the round bottom rim of the wall. For a closed shape, **Flat base** gives the print a footprint on the bed.
 
@@ -149,10 +148,11 @@ To grow a vase that prints without supports, let it grow upward: under **Simulat
 | Bend stiffness | Resistance to tight folds. |
 | Core firmness, Core growth (Simulation › Core) | A soft core under the surface: how firmly it holds each point near its starting place, and how fast it grows compared with the surface. With a core, a growing closed shape buckles into folds instead of inflating. Off by default. |
 | Stop at | Stops playback at a size, target strain, or step. |
-| Fold size (Form) | Sets rim width and bend stiffness together, from fine to broad. |
+| Fold size (Form) | How big folds grow over a whole surface: **Fine**, **Medium** or **Broad**. Change it any time; growth carries on at the new size. |
+| Rim fold size (Form) | Sets rim width and bend stiffness together, from fine to broad. |
 | Gravity | Pulls on the growth field only. The rest of the model stays in place. |
 | Hold parts that don't grow | Under Gravity. Holds the parts with no growth exactly where they are, as gravity does, so an erased flat bottom stays on the bed while the rest folds. On whenever gravity is. |
-| Repel distance and strength | How far apart folds in the growth field stay when they meet, and how quickly they are pushed back. |
+| Repel distance and strength | How far apart folds in the growth field stay when they meet, 0 to 12 mm, and how quickly they are pushed back. For printing, folds closer than your nozzle width, about 0.4 mm, fuse, and on a sheet the wall fills the gap too. On the default disk the millimeters are for the starting disk at its print size. |
 | Remesh edge length, Mesh detail limit (Simulation › Advanced) | Starting triangle size and how many vertices growth can add. **No limit** lets growth keep refining up to 240,000 vertices, about 480,000 triangles: as large a sheet as Growth Studio can open again. |
 
 The **Form** tab reports waves on each growing rim, size compared with the start, and dimensions in millimeters. The **Color** menu above the 3D view switches the overlay between the growth field, growth so far, recent contact, and the [print check](#print-check), and **Ghost** shows the starting shape.
@@ -195,9 +195,10 @@ This is a position-based design model. It is not a validated thin-shell or biolo
 - The print check counts faces on the mesh. It doesn't know your slicer's settings: a slicer skips very small overhangs, bridges short gaps, and adds supports only when they're switched on, so its result can differ a little. Turn on Add thickness to check the solid with its rims rather than the sheet.
 - The wall has one thickness everywhere; it cannot yet vary across the model.
 - Browsers may slow work in hidden tabs, so growth can slow down while the tab is hidden. The view catches up when you return.
-- Brain mode's built-in brain grows its 420 steps in about a minute and a half in Chrome (89 s on an M1 Max, 4.7 steps a second), ending at 16,508 points. Fine folds start from 9,564 points instead of 6,288 and take about 2½ minutes (161 s), ending at 24,592 points. The outer layer takes about 2 to 4 seconds to build after each pause, and has about 590,000 triangles on a folded brain.
-- Rebuilding an uploaded STL in brain mode takes about 2 seconds for a 250,000-triangle MRI brain, on the page.
-- Brain mode suits chunky closed shapes. Thin parts get thinner when smoothed, and they fold into themselves, so growth slows: a 7 mm tag became 5 mm thick and had 95 blocked steps in 420, against 15 on the built-in brain.
+- The built-in brain grows its 420 steps in about a minute and a half in Chrome (89 s on an M1 Max, 4.7 steps a second), ending at 16,508 points. Fine folds start from 9,564 points instead of 6,288 and take about 2½ minutes (161 s), ending at 24,592 points.
+- On a closed shape with thin walls, such as a pen holder, a wall's two faces fold separately, kept apart by Repel distance, so check its thickness after growth.
+- Smoothing a grown surface can make very tight folds cross. The status line says where, and Smooth surface off exports the grown surface, which growth keeps from crossing.
+- Rim presets grow from open rims, so on a closed shape only Brain folds and paint grow.
 
 ## Development
 
@@ -213,7 +214,7 @@ npm run build
 - `src/physics/`: the growing surface, growth layers, contact, bending, remeshing, and Voronoi views
 - `src/lib/`: STL import, project files, export, thickness for printing (`thicken.ts`), presets, readouts, and symmetry
 - `src/lib/printCheck.ts`: the print check (what needs support, what sits on the bed, and low points), counted for the view by `usePrintCheck.ts` and colored by `src/components/printShader.ts`
-- `src/lib/brain.ts` and `src/assets/brain/`: brain mode's recipe, the built-in brain at three fold sizes, and rebuilding an uploaded STL. `src/lib/voxel.ts` builds the outer layer and the rebuilt shapes on a voxel grid; `src/lib/outerLayer.worker.ts` runs it off the page. The design is in [docs/brain-mode.md](docs/brain-mode.md)
+- `src/lib/brain.ts` and `src/assets/brain/`: the Brain folds recipe, Fold size, and the built-in brain at three fold sizes. `src/lib/upload.ts` reads an STL as it is and checks a closed one with `meshCheck.ts`; `closedSolid.ts` and `cutFlat.ts` make a closed shape's print solid. The design is in [docs/brain-mode.md](docs/brain-mode.md)
 
 Growth Studio was split out of Growth Lab at commit `2837c65`.
 

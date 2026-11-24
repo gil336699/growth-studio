@@ -3,12 +3,14 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { createGrowingDisk, DISK_DEFAULTS } from '../physics/growingDisk'
 import {
-  BRAIN_LENGTH_MM, BRAIN_RADIUS, BRAIN_START_EDGE, brainErase, brainFromStl, flatBottomErase, brainLayers, brainMechanics,
-  builtInBrainSource, decodeBrainMesh, FOLD_ORDER, FOLD_SIZES, foldMechanics, foldSizeOf, OpenShapeError, rebuildNote, ThinShapeError,
+  boundingRadius, BRAIN_LENGTH_MM, BRAIN_RADIUS, BRAIN_START_EDGE, brainErase, flatBottomErase, brainLayers, brainMechanics,
+  builtInBrainSource, decodeBrainMesh, FOLD_ORDER, FOLD_SIZES, foldLength, foldMechanics, foldSizeOf, MAX_BUDGET_SCALE,
   type FoldSize,
 } from './brain'
 import { deserializeDiskProject, serializeDiskProject } from './diskProject'
-import { edgeProblems, signedVolume } from './voxel'
+import { edgeProblems, signedVolume } from './meshCheck'
+import { ballTriangles, boxTriangles, stl } from './testStl'
+import { readUpload } from './upload'
 
 const brainFile = (size: FoldSize) => {
   const bytes = readFileSync(fileURLToPath(new URL(`../assets/brain/brain-${size}.bin`, import.meta.url)))
@@ -72,13 +74,14 @@ it('grows a brain on at another fold size from where it is, with room for the fi
   for (const size of FOLD_ORDER) expect(foldSizeOf(FOLD_SIZES[size].remeshLength)).toBe(size)
   expect(foldSizeOf(0.1)).toBeNull()
   const broadRecipe = brainMechanics(DISK_DEFAULTS, 'broad')
-  const toFine = foldMechanics(broadRecipe, 'fine', 'broad')
+  const toFine = foldMechanics(broadRecipe, 'fine', FOLD_SIZES.broad.remeshLength)
   expect(toFine.remeshLength).toBe(FOLD_SIZES.fine.remeshLength)
   expect(toFine.budgetScale).toBeCloseTo((0.11 / 0.07) ** 2, 9)
   expect(toFine.coreStiffness).toBe(broadRecipe.coreStiffness)
-  expect(foldMechanics(toFine, 'broad', 'broad').budgetScale).toBe(1)
+  // Going back to a broader size keeps the raised limit, so growth isn't stopped at the vertices it already has.
+  expect(foldMechanics(toFine, 'broad', FOLD_SIZES.broad.remeshLength).budgetScale).toBe(toFine.budgetScale)
   // A broader size keeps the vertex limit, so growth isn't stopped at the vertices it already has.
-  expect(foldMechanics(brainMechanics(DISK_DEFAULTS, 'fine'), 'broad', 'fine').budgetScale).toBe(1)
+  expect(foldMechanics(brainMechanics(DISK_DEFAULTS, 'fine'), 'broad', FOLD_SIZES.fine.remeshLength).budgetScale).toBe(1)
   expect(brainMechanics(toFine, 'medium').budgetScale).toBe(1)
 
   // Grow a broad brain, then carry on from the same state at Broad and at Fine.
@@ -101,62 +104,45 @@ it('grows a brain on at another fold size from where it is, with room for the fi
   expect(fine.rejectedSteps).toBeLessThan(5)
 }, 60000)
 
-// A binary STL of a closed box, x × y × z mm, such as a thin plate.
-function boxStl(x: number, y: number, z: number) {
-  const p = [[0, 0, 0], [x, 0, 0], [x, y, 0], [0, y, 0], [0, 0, z], [x, 0, z], [x, y, z], [0, y, z]]
-  const faces = [[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]]
-  const buffer = new ArrayBuffer(84 + faces.length * 50), view = new DataView(buffer)
-  view.setUint32(80, faces.length, true)
-  faces.forEach((face, f) => face.forEach((vertex, k) => p[vertex].forEach((c, a) => view.setFloat32(84 + f * 50 + 12 + k * 12 + a * 4, c, true))))
-  return buffer
-}
-
-it('says when an upload is too thin for brain mode, and what the rebuild lost', () => {
-  // A 0.8 mm plate disappears in the rebuild: refused as too thin, not as an open surface, naming its thickness.
-  expect(() => brainFromStl(boxStl(60, 40, 0.8), 'plate.stl', 'medium', 'medium')).toThrow(ThinShapeError)
-  // No gentler setting keeps it, so the message suggests only Sheet mode.
-  expect(() => brainFromStl(boxStl(60, 40, 0.8), 'plate.stl', 'medium', 'medium')).toThrow(/about 0\.8 mm thick.*kept almost nothing\. Use Sheet mode with the Brain folds preset/)
-  // A 4 mm plate vanishes at Strong, but Light smoothing keeps it, at Medium or at Fine folds: both are suggested.
-  expect(() => brainFromStl(boxStl(60, 40, 4), 'plate.stl', 'medium', 'strong')).toThrow(/Try Light smoothing, or Fine folds with Light smoothing, or use Sheet mode/)
-  // A 4 mm plate keeps its shape at Light smoothing, and loses part of it at Medium, which says Light keeps more.
-  const light = brainFromStl(boxStl(60, 40, 4), 'plate.stl', 'medium', 'light').check
-  expect(rebuildNote(light, 'medium', 'light')).toBe('')
-  const medium = brainFromStl(boxStl(60, 40, 4), 'plate.stl', 'medium', 'medium').check
-  expect(medium.kept).toBeLessThan(0.75)
-  expect(rebuildNote(medium, 'medium', 'medium')).toMatch(/^The rebuild kept \d+% of the shape: .* Light smoothing keeps more of it\.$/)
-  // Breaking into more pieces than the STL has is reported too.
-  expect(rebuildNote({ ...light, pieces: 3 }, 'medium', 'light')).toMatch(/in 3 pieces/)
-}, 30000)
-
-// A binary STL of a closed, Z-up shape: an octahedron stretched 40 × 30 × 20 mm, or its upper half as an open sheet.
-function octahedronStl(open = false) {
-  const p = [[20, 0, 0], [-20, 0, 0], [0, 15, 0], [0, -15, 0], [0, 0, 10], [0, 0, -10]]
-  const faces = [[0, 2, 4], [2, 1, 4], [1, 3, 4], [3, 0, 4], [2, 0, 5], [1, 2, 5], [3, 1, 5], [0, 3, 5]].slice(0, open ? 4 : 8)
-  const buffer = new ArrayBuffer(84 + faces.length * 50), view = new DataView(buffer)
-  view.setUint32(80, faces.length, true)
-  faces.forEach((face, f) => face.forEach((vertex, k) => p[vertex].forEach((c, a) => view.setFloat32(84 + f * 50 + 12 + k * 12 + a * 4, c, true))))
-  return buffer
-}
-
-it('rebuilds an uploaded STL as a closed brain-sized shape that keeps its millimeters', () => {
-  const { source, check } = brainFromStl(octahedronStl(), 'diamond.stl', 'medium', 'light')
-  // Nothing was lost, so there's nothing to say.
-  expect(check.pieces).toBe(1)
-  expect(check.kept).toBeGreaterThan(0.75)
-  expect(rebuildNote(check, 'medium', 'light')).toBe('')
-  expect(edgeProblems(source.indices)).toBe(0)
-  expect(signedVolume(source.positions, source.indices)).toBeGreaterThan(0)
-  // Scaled to the built-in brain's size; the rebuild rounds off the sharp tips a little.
-  expect(extent(source.positions).radius).toBeGreaterThan(0.9 * BRAIN_RADIUS)
-  expect(extent(source.positions).radius).toBeLessThan(1.02 * BRAIN_RADIUS)
-  // 20 mm from the center to the tip, so export sizes stay in the STL's millimeters.
-  expect(source.scale * BRAIN_RADIUS).toBeCloseTo(20, 0)
-  // Z-up in the STL becomes Y-up in the app: the 10 mm half-height is now along y.
-  const { span } = extent(source.positions)
-  expect(span[1]).toBeLessThan(span[2])
-  expect(source.brain).toEqual({ builtin: false, foldSize: 'medium', smoothing: 'light' })
-  expect(() => brainFromStl(octahedronStl(true), 'tent.stl', 'medium', 'light')).toThrow(OpenShapeError)
+it('scales Fold size to the shape, so a size gives folds of the same size compared with any shape', () => {
+  // The built-in brain keeps the reel's lengths; an upload, which has radius 1, gets them scaled down.
+  const brain = builtInBrainSource(brainFile('medium'), 'medium')
+  expect(boundingRadius(brain.positions)).toBeCloseTo(BRAIN_RADIUS, 2)
+  expect(foldLength('medium')).toBe(FOLD_SIZES.medium.remeshLength)
+  const { source } = readUpload(stl(ballTriangles(3)), 'ball.stl')
+  const radius = boundingRadius(source.positions)
+  expect(radius).toBeCloseTo(1, 6)
+  expect(foldLength('medium', radius)).toBeCloseTo(0.09 / 1.173, 6)
+  expect(brainMechanics(DISK_DEFAULTS, 'fine', radius).remeshLength).toBeCloseTo(0.07 / 1.173, 6)
+  for (const size of FOLD_ORDER) expect(foldSizeOf(foldLength(size, radius), radius)).toBe(size)
+  // A length a little off still matches, as with a shape measured a little differently, but other lengths don't.
+  expect(foldSizeOf(0.0706)).toBe('fine')
+  expect(foldSizeOf(0.1)).toBeNull()
+  // From the sheet's split length to Fine would need about 5.9 times the vertices; the limit stops at 4.
+  expect(foldMechanics(DISK_DEFAULTS, 'fine', DISK_DEFAULTS.remeshLength, radius).budgetScale).toBe(MAX_BUDGET_SCALE)
+  expect(MAX_BUDGET_SCALE).toBeLessThan((DISK_DEFAULTS.remeshLength / foldLength('fine', radius)) ** 2)
 })
+
+it('grows a closed upload as it is with the Brain folds recipe, staying one closed surface', () => {
+  // A 40 mm ball: brain mode used to rebuild it on a voxel grid; now its own triangles grow.
+  const { source, closed } = readUpload(stl(ballTriangles(3)), 'ball.stl')
+  expect(closed).toBe(true)
+  const radius = boundingRadius(source.positions)
+  const settings = brainMechanics(DISK_DEFAULTS, 'medium', radius)
+  const disk = createGrowingDisk(source, settings.remeshLength)
+  expect(disk.initialOverlap).toBe(false)
+  disk.setLayers(brainLayers())
+  disk.setMechanics(settings)
+  for (let i = 0; i < 40; i++) disk.step(true)
+  expect(disk.strain).toBeGreaterThan(0.1)
+  expect(disk.rejectedSteps).toBeLessThan(5)
+  expect(edgeProblems(disk.indices)).toBe(0)
+  expect(signedVolume(disk.positions, disk.indices)).toBeGreaterThan(signedVolume(source.positions, source.indices))
+  // A thin plate grows as itself too: 2 mm walls, as on a pen holder, start intact.
+  const plate = readUpload(stl(boxTriangles(60, 40, 2)), 'plate.stl')
+  expect(plate.closed).toBe(true)
+  expect(createGrowingDisk(plate.source, foldLength('medium', 1)).initialOverlap).toBe(false)
+}, 60000)
 
 it('saves and reopens a brain project with its core and brain settings, and opens older projects without them', () => {
   const source = builtInBrainSource(brainFile('broad'), 'broad')
@@ -184,11 +170,15 @@ it('saves and reopens a brain project with its core and brain settings, and open
   expect(reopened.mechanics.coreStiffness).toBe(0)
   expect(reopened.mechanics.budgetScale).toBe(1)
   expect(reopened.source?.brain).toBeUndefined()
+  // An upload that brain mode rebuilt before 0.16.0 opens as an ordinary closed shape.
+  const rebuilt = JSON.parse(json)
+  rebuilt.source.brain = { builtin: false, foldSize: 'medium', smoothing: 'light' }
+  expect(deserializeDiskProject(JSON.stringify(rebuilt)).source?.brain).toBeUndefined()
   const bad = JSON.parse(json)
   bad.source.brain.foldSize = 'huge'
   expect(() => deserializeDiskProject(JSON.stringify(bad))).toThrow('invalid design data')
   // A Fold size changed while growing is saved in the settings; a limit scale out of range is refused.
-  const changed = deserializeDiskProject(serializeDiskProject({ ...JSON.parse(json), mechanics: foldMechanics(mechanics, 'fine', 'broad') }))
+  const changed = deserializeDiskProject(serializeDiskProject({ ...JSON.parse(json), mechanics: foldMechanics(mechanics, 'fine', FOLD_SIZES.broad.remeshLength) }))
   expect(foldSizeOf(changed.mechanics.remeshLength)).toBe('fine')
   const huge = JSON.parse(json)
   huge.mechanics.budgetScale = 9

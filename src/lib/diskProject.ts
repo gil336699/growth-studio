@@ -70,9 +70,10 @@ const ranges: Record<keyof typeof DISK_DEFAULTS, [number, number]> = {
   // Brain mode's Fine fold size splits at 0.07; projects from before it never go below 0.09.
   growthRate: [0, 0.008], bending: [0, 0.3], damping: [0.02, 0.9], remeshLength: [0.05, 0.25],
   gravity: [0, 1], gravityTilt: [0, 180], gravityHeading: [0, 359],
-  compoundGrowth: [0, 1], repelDistance: [0.004, 0.04], repelStrength: [0.1, 1], detailScale: [1, 4],
+  // Repel distance is set in mm, 0 to 12 mm: on a small STL that can be many model units.
+  compoundGrowth: [0, 1], repelDistance: [0, 10], repelStrength: [0.1, 1], detailScale: [1, 4],
   coreStiffness: [0, 0.05], coreGrowth: [0, 1], holdStill: [0, 1],
-  // Fold size made finer while growing: up to (0.11 / 0.07)², from Broad to Fine.
+  // Fold size made finer while growing: up to MAX_BUDGET_SCALE in lib/brain.
   budgetScale: [1, 4],
   unlimitedDetail: [0, 1],
 }
@@ -168,6 +169,11 @@ export function deserializeDiskProject(json: string) {
       bevel: project.thickness?.bevel ?? (project.thickness?.smooth && project.thickness.smooth !== 'off' ? 1 : 0),
       sharpAngle: project.thickness?.sharpAngle ?? (project.thickness?.bevel !== undefined ? 40 : SHARP_ANGLE),
     },
-    source: source && { ...source, positions: Float32Array.from(source.positions), indices: Uint32Array.from(source.indices) },
+    // Only the built-in brain keeps its brain info: an upload that brain mode rebuilt before 0.16.0 opens as an ordinary
+    // closed shape, its rebuilt mesh kept.
+    source: source && {
+      ...source, positions: Float32Array.from(source.positions), indices: Uint32Array.from(source.indices),
+      brain: source.brain?.builtin ? { builtin: true, foldSize: source.brain.foldSize } : undefined,
+    },
   }
 }

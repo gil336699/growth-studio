@@ -2,7 +2,8 @@ import { BufferGeometry } from 'three'
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js'
 import { parseStl } from '../lib/stl'
 
-// A starting shape made in brain mode: the built-in brain, or an uploaded STL rebuilt as a smooth, closed shape.
+// The built-in brain, meshed at a fold size. Projects from before 0.16.0 also gave it to uploads that brain mode rebuilt;
+// those open as ordinary closed shapes, and smoothing was only for them.
 export type BrainInfo = { builtin: boolean; foldSize: 'fine' | 'medium' | 'broad'; smoothing?: 'light' | 'medium' | 'strong' }
 
 export type GrowthStlSource = {

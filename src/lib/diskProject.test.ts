@@ -188,3 +188,14 @@ it('keeps No limit for the mesh detail, opens older projects with the limit on, 
   odd.mechanics.unlimitedDetail = 2
   expect(() => deserializeDiskProject(JSON.stringify(odd))).toThrow('invalid design data')
 })
+
+it('keeps a Repel distance set in millimeters, from 0 up to many model units on a small STL', () => {
+  const input = sheet()
+  const disk = createGrowingDisk(input)
+  const save = (repelDistance: number) => serializeDiskProject({ source: source(input), disk: disk.snapshot(), mechanics: { ...DISK_DEFAULTS, repelDistance }, revision: 0, ...settings })
+  // 0 mm lets folds touch; 12 mm on a 12 mm wide STL is 2 model units.
+  expect(deserializeDiskProject(save(0)).mechanics.repelDistance).toBe(0)
+  expect(deserializeDiskProject(save(2)).mechanics.repelDistance).toBe(2)
+  expect(() => deserializeDiskProject(save(-0.01))).toThrow('invalid design data')
+  expect(() => deserializeDiskProject(save(11))).toThrow('invalid design data')
+})

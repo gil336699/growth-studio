@@ -595,6 +595,13 @@ export function createGrowingDisk(input?: { positions: Float32Array; indices: Ui
       stroke = null
       refreshField()
     },
+    // Erase where values say, on top of what is painted: a starting erase, such as a flat bottom's. Not a brush stroke,
+    // so Undo leaves it.
+    addErase(values: ArrayLike<number>) {
+      const n = Math.min(values.length, paint.erase.length)
+      for (let v = 0; v < n; v++) paint.erase[v] = Math.max(paint.erase[v], values[v])
+      refreshField()
+    },
     restPoint(vertex: number): Vec3 { return [rest[vertex * 3], rest[vertex * 3 + 1], rest[vertex * 3 + 2]] },
     // Starting-shape coordinates in full precision; layer centers placed on the model come from here.
     get rest(): readonly number[] { return rest },

@@ -31,6 +31,7 @@ export type ToRunner =
   | { kind: 'brush'; points: StrokePoint[]; radius: number; hardness: number; mode: BrushMode; strength: number; first: boolean; topology: number }
   | { kind: 'undo' }
   | { kind: 'clearPaint' }
+  | { kind: 'erase'; values: Float32Array }
   | { kind: 'snap'; id: number }
   // The page drew the last frame and can take another.
   | { kind: 'ack' }
@@ -193,6 +194,7 @@ export function createSimulationRunner(post: (message: FromRunner, transfer: Tra
       }
       case 'undo': d.undoBrush(); break
       case 'clearPaint': d.clearPaint(); break
+      case 'erase': d.addErase(message.values); break
       case 'snap': post({ kind: 'snap', id: message.id, snap: snapOfDisk(d) }, []); return
     }
     dirty = true

@@ -75,6 +75,21 @@ export function sharpEdges(positions: ArrayLike<number>, indices: ArrayLike<numb
   return Uint32Array.from(out)
 }
 
+// How much a crease's ends may have grown, as a share of their starting length, and still be a designed edge.
+export const GROWN_LIMIT = 0.1
+// The sharp edges that are still designed edges after growth: those whose two ends grew at most `limit`. Where the
+// surface grew, a designed edge has folded with it, and keeping it sharp makes smoothing fold the surface over it (a pen
+// holder grown 160 steps with Brain folds crossed itself in 18 places when Light-smoothed). An edge that doesn't grow,
+// such as one around a flat bottom that is held still, stays sharp.
+export function ungrownEdges(creases: ArrayLike<number>, growth: ArrayLike<number>, limit = GROWN_LIMIT): Uint32Array {
+  const out: number[] = []
+  for (let i = 0; i + 1 < creases.length; i += 2) {
+    const a = creases[i], b = creases[i + 1]
+    if ((growth[a] ?? 0) <= limit && (growth[b] ?? 0) <= limit) out.push(a, b)
+  }
+  return Uint32Array.from(out)
+}
+
 export function smoothSheet(positions: ArrayLike<number>, indices: ArrayLike<number>, passes: number, options: SmoothOptions = {}): SmoothSheet {
   let P: Float32Array = Float32Array.from(positions), I: Uint32Array = Uint32Array.from(indices)
   let origin: Uint32Array = new Uint32Array(P.length / 3).map((_, v) => v), origin2: Uint32Array = origin.slice()

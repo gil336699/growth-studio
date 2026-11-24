@@ -1,6 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { Vector3 } from 'three'
-import { BrainControls } from './components/BrainControls'
 import { LayersPanel } from './components/LayersPanel'
 import { Icon } from './components/Icon'
 import { Modal } from './components/Modal'
@@ -25,16 +24,17 @@ import { PRESETS } from './lib/presets'
 import { rangeFill } from './lib/rangeFill'
 import { saveFile, type SaveResult } from './lib/saveFile'
 import { facingSign, printScale, RIM_ROUNDNESS, thicken, WALL_SHIFT, type RimProfile, type Solid, type WallSide } from './lib/thicken'
-import { SHARP_ANGLE_RANGE, sharpEdges, SMOOTH_MAX_TRIANGLES, smoothPassesFor, smoothSheet, type SmoothLevel } from './lib/smoothSheet'
+import { SHARP_ANGLE_RANGE, sharpEdges, SMOOTH_MAX_TRIANGLES, smoothPassesFor, smoothSheet, ungrownEdges, type SmoothLevel } from './lib/smoothSheet'
 import { createGrowingDisk, DISK_DEFAULTS, diskGravityDirection, NO_LIMIT_VERTICES, type BrushMode, type DiskSnapshot, type StrokePoint } from './physics/growingDisk'
 import type { GrowthLayer, Vec3 } from './physics/growthLayers'
-import { growthExportPositions, readGrowthStl, type GrowthStlSource } from './physics/growthStl'
+import { growthExportPositions, type GrowthStlSource } from './physics/growthStl'
 import { MAX_TRIANGLES, SLOW_TRIANGLES, stlTriangleCount } from './lib/stl'
 import {
-  BRAIN_CONTINUE, BRAIN_LAYER, BRAIN_START_EDGE, BRAIN_STOP, brainErase, brainFromStl, brainLayers, brainMechanics, FOLD_SIZES,
-  flatBottomErase, foldMechanics, foldSizeOf, loadBuiltInBrain, OpenShapeError, rebuildNote, SMOOTHING, ThinShapeError, type FoldSize, type Smoothing,
+  boundingRadius, BRAIN_CONTINUE, BRAIN_CREDIT, BRAIN_RADIUS, BRAIN_START_EDGE, BRAIN_STOP, brainErase, brainLayers, brainMechanics, FOLD_ORDER, FOLD_SIZES,
+  flatBottomErase, foldLength, foldMechanics, foldSizeOf, loadBuiltInBrain, MAX_BUDGET_SCALE, type FoldSize,
 } from './lib/brain'
-import { useOuterLayer } from './lib/useOuterLayer'
+import { closedSolid } from './lib/closedSolid'
+import { readUpload } from './lib/upload'
 import { usePrintCheck } from './lib/usePrintCheck'
 import { PRINT_ANGLE_DEFAULT } from './lib/printCheck'
 
@@ -42,6 +42,8 @@ type Mechanics = typeof DISK_DEFAULTS
 const MAX_SNAPSHOTS = 80
 // A surface that already crosses itself can cross in millions of places once thickened, so counting stops here.
 const CROSSING_LIMIT = 1000
+// Repel distance's ceiling in solver units, the project's range: 12 mm on an STL smaller than 1.2 mm per unit would pass it.
+const REPEL_MAX_UNITS = 10
 // Labels and tips for where the wall goes, on an STL and on the default disk, which has a top and a bottom instead.
 const WALL_SIDES: { side: WallSide; stl: [string, string]; disk: [string, string] }[] = [
   { side: 'both', stl: ['Both', 'Center the wall on the surface, half on each side.'], disk: ['Both', 'Center the wall on the surface, half on each side.'] },
@@ -56,8 +58,8 @@ const RIM_PROFILES: [RimProfile, string, string][] = [
   ['square', 'Square', 'A flat edge cut straight across the wall.'],
 ]
 const SMOOTH_LEVELS: [SmoothLevel, string, string][] = [
-  ['off', 'Off', 'Add the wall to the surface as it grew, triangle for triangle.'],
-  ['light', 'Light', 'Smooth the surface once before the wall: four times the triangles, and most facets gone.'],
+  ['off', 'Off', 'Use the surface as it grew, triangle for triangle.'],
+  ['light', 'Light', 'Smooth the surface once: four times the triangles, and most facets gone.'],
   ['strong', 'Strong', 'Smooth it twice: sixteen times the triangles, smooth even on a coarse sheet. Folds soften a little.'],
 ]
 const percent = (value: number, digits = 0) => `${(value * 100).toFixed(digits)}%`
@@ -79,6 +81,11 @@ const creasesOf = (referencePositions: Float32Array, indices: Uint32Array, angle
   if (!creases) { creases = sharpEdges(referencePositions, indices, angle); byAngle.set(angle, creases) }
   return creases
 }
+// The edges that stay sharp when smoothing: sharp in the starting shape, and not grown since (lib/smoothSheet).
+const keptCreases = (disk: DiskSession, angle: number) => ungrownEdges(creasesOf(disk.referencePositions, disk.indices, angle), disk.localGrowth)
+// A shape's radius for Fold size: the built-in brain is the reference the lengths are set for, so its three meshes, which
+// measure a little differently (1.173 to 1.182), all use its exact lengths; any other shape is measured.
+const sourceRadius = (source: GrowthStlSource | null) => source?.brain ? BRAIN_RADIUS : source ? boundingRadius(source.positions) : 1
 // Keep the newest snapshots; thin out older ones when the list is full.
 const keepSnapshots = (snaps: Snap[]) => snaps.length <= MAX_SNAPSHOTS ? snaps
   : snaps.filter((_, i) => i === 0 || i >= snaps.length / 2 || i % 2 === 0)
@@ -128,11 +135,9 @@ export function App() {
   const [input, setInput] = useState<GrowthStlSource | null>(null)
   const [loading, setLoading] = useState(false)
   const [importError, setImportError] = useState('')
-  // An STL that brain mode refused, because it's open or its walls are too thin, so its message can offer to open it in
-  // sheet mode with Brain folds instead.
-  type Refused = { buffer: ArrayBuffer; name: string; kind: 'open' | 'thin' }
-  const [openUpload, setOpenUpload] = useState<Refused | null>(null)
-  const showImportError = (text: string, refused: Refused | null = null) => { setImportError(text); setOpenUpload(refused) }
+  const showImportError = (text: string) => setImportError(text)
+  // An open STL with only hairline gaps, which likely was meant to be closed.
+  const [nearlyClosed, setNearlyClosed] = useState(false)
   const [centerExport, setCenterExport] = useState(false)
   const [projectStatus, setProjectStatus] = useState('')
   const [projectError, setProjectError] = useState('')
@@ -163,15 +168,11 @@ export function App() {
   const [rightTab, setRightTab] = useState<'form' | 'explore' | 'file'>('form')
   const inputRef = useRef<HTMLInputElement>(null)
   const projectRef = useRef<HTMLInputElement>(null)
-  // Sheet mode grows open surfaces from their rims; brain mode grows a closed shape's whole surface over a core.
-  const [mode, setMode] = useState<'sheet' | 'brain'>('sheet')
-  const [brainFold, setBrainFold] = useState<FoldSize>('medium')
-  // Light by default: a designer's CAD part keeps its thin walls. Strong is there for a scan that's already folded.
-  const [brainSmoothing, setBrainSmoothing] = useState<Smoothing>('light')
-  // What an upload's rebuild lost, if anything, shown in the Starting surface card while that shape is loaded.
-  const [rebuildMessage, setRebuildMessage] = useState<{ source: GrowthStlSource; text: string } | null>(null)
-  // The last STL uploaded in brain mode, so Fold size and Smoothing can rebuild it. Projects don't keep it.
-  const [brainUpload, setBrainUpload] = useState<{ buffer: ArrayBuffer; name: string } | null>(null)
+  // The fold size a closed shape starts with, and the last one chosen. Fold size grows folds over a whole surface; a rim's
+  // folds have their own control.
+  const [foldChoice, setFoldChoice] = useState<FoldSize>('medium')
+  // The edge length the current surface was prepared with, so a finer Fold size can raise the vertex limit to match.
+  const preparedEdge = useRef(DISK_DEFAULTS.remeshLength)
   const [coreOpen, setCoreOpen] = useState(false)
 
   const step = disk.clock
@@ -192,12 +193,23 @@ export function App() {
   const stopping = disk.busy && !running && !manualQueue
   const active = running || manualQueue > 0 || disk.busy
   const canSimulate = !loading && !disk.initialOverlap && disk.canGrow
+  // The shape's size in solver units, which Fold size's lengths scale to, and the fold size the split length now matches.
+  const shapeRadius = useMemo(() => sourceRadius(input), [input])
+  const foldNow = foldSizeOf(mechanics.remeshLength, shapeRadius)
+  const surfaceGrowth = layers.some(layer => layer.kind === 'surface')
+  // Millimeters per solver unit: an STL's own, or the default disk at its print size, for settings shown in mm.
+  const mmPerUnit = input ? input.scale : printScale(disk.referencePositions, null, thickness.size)
+  const repelMm = mechanics.repelDistance * mmPerUnit
   const selectedLayer = layers.find(layer => layer.id === selectedLayerId) ?? layers[0]
 
   // Thickness for printing: a wall on one or both sides of the surface, closed along the open rims.
   // The 3D view shows the solid while growth is paused, and Export writes it.
   const canThicken = rims.length > 0
   const solidOn = thickness.on && canThicken
+  // A closed shape, such as a brain, is a solid already: it prints as it grew, smoothed like a sheet and cut flat at the
+  // bottom if asked (lib/closedSolid). Nothing is rebuilt or merged, so thin walls and designed edges stay.
+  const closedShape = !canThicken && Boolean(input)
+  const closedOn = thickness.on && closedShape
   // Outside and Inside follow the way the starting surface faces: away from the middle of an STL, or up from the disk.
   // An STL keeps its own millimeters. The default disk is scaled so the solid itself, wall and rims included, has the
   // chosen longest side; scaling the sheet alone made a 100 mm disk with a 5 mm wall export 105 mm long.
@@ -207,7 +219,7 @@ export function App() {
   const makeSolid = (wallMm: number, rim: RimProfile, side: WallSide, size: number, smooth: SmoothLevel, bevel: number, sharpAngle: number) => {
     const shift = side === 'both' ? 0 : WALL_SHIFT[side] * facingSign(disk.referencePositions, disk.indices, input ? 'outward' : 'up')
     const passes = smoothPassesFor(smooth, disk.indices.length / 3)
-    const creases = passes && bevel < 1 ? creasesOf(disk.referencePositions, disk.indices, sharpAngle) : undefined
+    const creases = passes && bevel < 1 ? keptCreases(disk, sharpAngle) : undefined
     const sheet = passes ? smoothSheet(disk.positions, disk.indices, passes, { creases, bevel }) : null
     const build = (scale: number) => {
       const made = thicken(sheet ? sheet.positions : disk.positions, sheet ? sheet.indices : disk.indices, wallMm / scale, RIM_ROUNDNESS[rim], 4, shift)
@@ -231,33 +243,14 @@ export function App() {
   [solidOn, active, disk, disk.indices, disk.geometryRevision, wall, rimProfile, wallSide, printSize, smoothLevel, bevelAmount, sharpAngle, input])
   // How many mesh edges of the starting shape are sharp enough to keep, for the Bevel control: counted while growth is
   // paused (the mesh splits often while it grows), and unknown meanwhile. How many smoothing passes really run.
-  const sharpCount = useMemo(() => solidOn && !active ? creasesOf(disk.referencePositions, disk.indices, sharpAngle).length / 2 : null,
-    [solidOn, active, disk.referencePositions, disk.indices, sharpAngle])
+  const sharpCount = useMemo(() => (solidOn || closedOn) && !active ? keptCreases(disk, sharpAngle).length / 2 : null,
+  // Growth so far changes in place; the geometry revision tracks it.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [solidOn, closedOn, active, disk, disk.indices, disk.geometryRevision, sharpAngle])
   const smoothPasses = smoothPassesFor(thickness.smooth, disk.indices.length / 3)
   // Whether the solid is closed and where its wall crosses itself, found in a worker since a dense mesh takes seconds.
   type SolidCheck = { leaks: number; pairs: number; capped: boolean; vertices: number[]; failed?: boolean }
   const [solidCheck, setSolidCheck] = useState<SolidCheck & { solid: Solid } | null>(null)
-  useEffect(() => {
-    if (!solid) return
-    const worker = new Worker(new URL('./lib/solidCheck.worker.ts', import.meta.url), { type: 'module' })
-    worker.onmessage = ({ data }: MessageEvent<SolidCheck>) => {
-      setSolidCheck({ solid, ...data })
-      worker.terminate()
-    }
-    worker.onerror = event => {
-      event.preventDefault()
-      setSolidCheck({ solid, leaks: 0, pairs: 0, capped: false, vertices: [], failed: true })
-      worker.terminate()
-    }
-    const timer = window.setTimeout(() => worker.postMessage({ positions: solid.positions, indices: solid.indices, origin: solid.origin, limit: CROSSING_LIMIT }), 200)
-    return () => { window.clearTimeout(timer); worker.terminate() }
-  }, [solid])
-  const crossings = solidCheck?.solid === solid ? solidCheck : null
-  // A closed shape, such as a brain, gets an outer layer instead: the inside filled and a wall around the surface, merged
-  // where folds touch. It's built in a worker while growth is paused; while growing, the view previews it.
-  const closedLayer = thickness.on && !canThicken && Boolean(input)
-  const layerOffset = input ? thickness.wall / 2 / input.scale : 0
-  // The hook waits for the slider to rest and drops builds that are out of date, so the offset needn't be deferred.
   // The flat base's range follows the starting shape's height: up to a quarter of it, and 5 mm unless that's too much.
   const startHeight = useMemo(() => {
     if (!input) return 0
@@ -267,18 +260,43 @@ export function App() {
   }, [input])
   const baseRange: [number, number] = [0.5, Math.max(1, Math.round(0.25 * startHeight * 2) / 2)]
   const baseCut = Math.min(baseRange[1], Math.max(baseRange[0], thickness.baseCut))
-  const outer = useOuterLayer(closedLayer && !active, disk, `${sessionId(disk)}:${disk.geometryRevision}`, layerOffset,
-    closedLayer && thickness.flatBase && input ? baseCut / input.scale : 0)
-  const showLayer = closedLayer && thickness.show
-  const layerRange: [number, number] = input ? [Math.max(0.1, Math.round(0.004 * input.scale * 10) / 10), Math.max(1, Math.round(0.12 * input.scale * 10) / 10)] : [0.1, 5]
+  const flatBase = useDeferredValue(thickness.flatBase), deferredCut = useDeferredValue(baseCut)
+  const makeClosed = (smooth: SmoothLevel, bevel: number, angle: number, flat: boolean, cutMm: number) => {
+    const passes = smoothPassesFor(smooth, disk.indices.length / 3)
+    const creases = passes && bevel < 1 ? keptCreases(disk, angle) : undefined
+    return closedSolid(disk.positions, disk.indices, { passes, creases, bevel, cut: flat && input ? cutMm / input.scale : 0 })
+  }
+  const closedPrint = useMemo(() => closedOn && !active ? makeClosed(smoothLevel, bevelAmount, sharpAngle, flatBase, deferredCut) : null,
+  // Positions change in place; the geometry revision tracks them.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [closedOn, active, disk, disk.indices, disk.geometryRevision, smoothLevel, bevelAmount, sharpAngle, flatBase, deferredCut, input])
+  const printSolid = solid ?? closedPrint
+  useEffect(() => {
+    if (!printSolid) return
+    const target = printSolid
+    const worker = new Worker(new URL('./lib/solidCheck.worker.ts', import.meta.url), { type: 'module' })
+    worker.onmessage = ({ data }: MessageEvent<SolidCheck>) => {
+      setSolidCheck({ solid: target, ...data })
+      worker.terminate()
+    }
+    worker.onerror = event => {
+      event.preventDefault()
+      setSolidCheck({ solid: target, leaks: 0, pairs: 0, capped: false, vertices: [], failed: true })
+      worker.terminate()
+    }
+    const timer = window.setTimeout(() => worker.postMessage({ positions: target.positions, indices: target.indices, origin: target.origin, limit: CROSSING_LIMIT }), 200)
+    return () => { window.clearTimeout(timer); worker.terminate() }
+  }, [printSolid])
+  const crossings = solidCheck?.solid === printSolid ? solidCheck : null
   // A change to the solid makes the last export's message out of date.
   const changeThickness = (patch: Partial<Thickness>) => { setThickness(current => ({ ...current, ...patch })); setExportStatus(''); touch() }
   const sideName = thickness.side === 'both' ? '' : (WALL_SIDES.find(s => s.side === thickness.side)![input ? 'stl' : 'disk'][0]).toLowerCase()
   const crossingCount = crossings ? `${crossings.capped ? 'more than ' : ''}${crossings.pairs.toLocaleString()} ${crossings.pairs === 1 && !crossings.capped ? 'place' : 'places'}` : ''
   const showSolid = Boolean(solid && thickness.show)
-  // The print check counts the surface the 3D view shows: the solid or the outer layer when it's shown, otherwise the
-  // sheet, read as a wall with two sides when it's open.
-  const shownSolid = showSolid ? solid : showLayer ? outer.solid : null
+  const showClosed = Boolean(closedPrint && thickness.show)
+  // The print check counts the surface the 3D view shows: the print solid when it's shown, otherwise the sheet, read as
+  // a wall with two sides when it's open.
+  const shownSolid = showSolid ? solid : showClosed ? closedPrint : null
   const printSurface = useMemo(() => shownSolid ?? { positions: disk.positions, indices: disk.indices },
     [shownSolid, disk.positions, disk.indices])
   const printTwoSided = !shownSolid && canThicken
@@ -324,49 +342,50 @@ export function App() {
     phaseRun.current = false
     setPhaseIndex(null)
   }
-  // prepare, if given, works on the new surface before it starts, such as painting erase onto it.
+  // The shape's own erase, painted on when it starts and again on Reset: the built-in brain doesn't grow on the inner
+  // walls between its halves or the middle of its base, and an upload standing on a flat bottom keeps the bottom and the
+  // lowest fifth of its wall from growing whenever the whole surface grows, as with Brain folds, so its print still
+  // stands flat on the bed.
+  const startingErase = (source: GrowthStlSource, surface: ReturnType<typeof createGrowingDisk>) =>
+    source.brain?.builtin ? brainErase(surface.rest)
+      : surface.layers.some(layer => layer.kind === 'surface') ? flatBottomErase(surface.rest, surface.indices) : null
+  // prepare, if given, works on the new surface before it starts.
   const freshSurface = (source: GrowthStlSource | null, keepLayers: GrowthLayer[] | null, settings = mechanics,
     prepare?: (surface: ReturnType<typeof createGrowingDisk>) => void) => {
-    // A brain-mode shape is already meshed at its fold size, so preparation leaves it as it is.
+    // The built-in brain is already meshed at its fold size, so preparation leaves it as it is.
     const fresh = createGrowingDisk(source ?? undefined, source?.brain ? BRAIN_START_EDGE : settings.remeshLength)
+    preparedEdge.current = source?.brain ? foldLength(source.brain.foldSize) : settings.remeshLength
     if (keepLayers) {
       // Keep layers whose rim still exists on the new surface.
       const count = fresh.openRims.length
       fresh.setLayers(keepLayers.filter(layer => layer.kind !== 'rim' || layer.rim === 'all' || layer.rim < count))
     }
-    // The built-in brain doesn't grow on the inner walls between its halves or the middle of its base.
-    if (source?.brain?.builtin) {
-      fresh.paint.erase.set(brainErase(fresh.rest))
-      fresh.setLayers(fresh.layers)
-    }
+    const erase = source ? startingErase(source, fresh) : null
+    if (erase) { fresh.paint.erase.set(erase); fresh.setLayers(fresh.layers) }
     prepare?.(fresh)
     return createDiskSession(fresh, { source, mechanics: settings })
   }
   const reset = async () => {
     stopPlayback()
     setRelaxing(false)
-    // A brain whose Fold size changed while it grew goes back to a smooth brain meshed for the new size, as a fresh
-    // brain of that size would start. An upload reopened from a project can't be rebuilt, so it keeps its shape.
-    let source = input, settings = mechanics
-    if (input?.brain && input.brain.foldSize !== brainFold && (input.brain.builtin || brainUpload)) {
+    // A built-in brain whose Fold size changed while it grew goes back to a smooth brain meshed for the new size, as a
+    // fresh brain of that size starts. Any other shape goes back to itself, prepared at the split length in use.
+    let source = input
+    const size = input?.brain ? foldSizeOf(mechanics.remeshLength) : null
+    if (input?.brain && size && size !== input.brain.foldSize) {
       setLoading(true)
       try {
-        if (!input.brain.builtin) await new Promise(resolve => setTimeout(resolve, 30))
-        if (input.brain.builtin) source = await loadBuiltInBrain(brainFold)
-        else {
-          const built = brainFromStl(brainUpload!.buffer, brainUpload!.name, brainFold, brainSmoothing)
-          source = built.source
-          setRebuildMessage({ source: built.source, text: rebuildNote(built.check, brainFold, brainSmoothing) })
-        }
-        settings = { ...mechanics, budgetScale: 1 }
+        source = await loadBuiltInBrain(size)
         setInput(source)
-        setMechanics(settings)
       } catch {
-        // Offline, say: reset to the starting shape it has.
+        // Offline, say: reset to the brain it has.
       } finally {
         setLoading(false)
       }
     }
+    const prepared = source?.brain ? foldLength(source.brain.foldSize) : mechanics.remeshLength
+    const settings = { ...mechanics, budgetScale: Math.min(MAX_BUDGET_SCALE, Math.max(1, (prepared / mechanics.remeshLength) ** 2)) }
+    setMechanics(settings)
     adopt(freshSurface(source, layers, settings))
     setSavedPoint({ step: 0, edits })
     setNotice('')
@@ -374,85 +393,46 @@ export function App() {
     setProjectStatus('')
     setProjectError('')
   }
-  const importStl = async (file: File) => {
+  // An open surface, the default disk or an upload, grows from its rims. Coming from a closed shape, the settings go back
+  // to the sheet's defaults, since the Brain folds recipe's core and stiff sheet don't suit a sheet. Otherwise they stay,
+  // to reuse on a new file.
+  const startOpen = (source: GrowthStlSource | null) => {
     stopPlayback()
-    setLoading(true)
-    showImportError('')
-    try {
-      const buffer = await file.arrayBuffer()
-      const triangles = stlTriangleCount(buffer)
-      if (triangles > MAX_TRIANGLES) {
-        throw new Error(`This STL has about ${triangles.toLocaleString()} triangles, more than Growth Studio can prepare (${MAX_TRIANGLES.toLocaleString()}). Reduce it in your CAD tool, for example Fusion's Mesh › Reduce, to under ${SLOW_TRIANGLES.toLocaleString()} for interactive growth.`)
-      }
-      const source = readGrowthStl(buffer, file.name)
-      const fresh = freshSurface(source, null)
-      setInput(source)
-      adopt(fresh)
-      setCenterExport(false)
-      setExportStatus('')
-      // Cell outlines on a very dense mesh are slow and hide the form, so start large meshes on the plain surface.
-      setView(current => fresh.indices.length / 3 > SLOW_TRIANGLES ? 'smooth' : current === 'fans' ? 'fans' : 'cells')
-      setTool('orbit')
-      setOverlay('field')
-      setSavedPoint({ step: 0, edits })
-      setNotice('')
-      setProjectError('')
-      setProjectStatus('')
-    } catch (error) {
-      // Name the file and say nothing was lost, since the previous model stays loaded.
-      const reason = error instanceof Error ? error.message : 'It could not be prepared.'
-      showImportError(`Couldn't open ${file.name}. ${reason} Your current model is unchanged.`)
-    } finally {
-      setLoading(false)
-    }
-  }
-  const switchToDefaultDisk = () => {
-    stopPlayback()
-    setInput(null)
-    adopt(freshSurface(null, null))
-    showImportError('')
-    setExportStatus('')
-    setProjectError('')
-    setProjectStatus('')
-    setSavedPoint({ step: 0, edits })
-  }
-  // Back to sheet mode: the default disk with default settings, since the brain recipe's core and stiff sheet don't suit it.
-  const leaveBrainMode = () => {
-    stopPlayback()
-    setBrainUpload(null)
-    setMode('sheet')
-    setInput(null)
-    setMechanics(DISK_DEFAULTS)
-    adopt(freshSurface(null, null, DISK_DEFAULTS))
-    setThickness(THICKNESS_DEFAULTS)
-    setStopAt(STOP_DEFAULTS)
-    setView('cells')
-    setOverlay('field')
-    setNotice('')
-    showImportError('')
-    setExportStatus('')
-    setProjectError('')
-    setProjectStatus('')
-    setSavedPoint({ step: 0, edits })
-  }
-  // Brain mode starts from a brain-mode shape with the reel's recipe: the whole surface grows over a core, stops at step
-  // 420, and shows its outer layer. Layers, growth settings and thickness are replaced; other settings stay.
-  const startBrain = (source: GrowthStlSource) => {
-    stopPlayback()
-    const size = source.brain?.foldSize ?? 'medium'
-    const settings = brainMechanics(mechanics, size)
-    const fresh = freshSurface(source, brainLayers(), settings)
+    const fromClosed = closedShape
+    const settings = fromClosed ? DISK_DEFAULTS : mechanics
+    const fresh = freshSurface(source, null, settings)
     setInput(source)
     setMechanics(settings)
     adopt(fresh)
-    setMode('brain')
-    setBrainFold(size)
-    if (source.brain?.smoothing) setBrainSmoothing(source.brain.smoothing)
+    if (fromClosed) { setThickness(THICKNESS_DEFAULTS); setStopAt(STOP_DEFAULTS); setPhases([]) }
+    setCenterExport(false)
+    // Cell outlines on a very dense mesh are slow and hide the form, so start large meshes on the plain surface.
+    setView(current => fresh.indices.length / 3 > SLOW_TRIANGLES ? 'smooth' : !fromClosed && current === 'fans' ? 'fans' : 'cells')
+    setTool('orbit')
+    setOverlay('field')
+    setNotice('')
+    setExportStatus('')
+    setProjectError('')
+    setProjectStatus('')
+    setSavedPoint({ step: 0, edits })
+  }
+  // A closed shape, the built-in brain or an upload, grows over its whole surface with the Brain folds recipe: over a soft
+  // core, until step 420, with its print solid shown. A flat bottom doesn't grow and is held still. Layers, growth
+  // settings and print settings are replaced; other settings stay. Returns whether a flat bottom is held.
+  const startClosed = (source: GrowthStlSource, size: FoldSize) => {
+    stopPlayback()
+    const settings = { ...brainMechanics(mechanics, size, sourceRadius(source)), holdStill: 0 }
+    const fresh = freshSurface(source, brainLayers(), settings, surface => {
+      if (!source.brain && surface.paint.erase.some(value => value > 0)) settings.holdStill = 1
+    })
+    setInput(source)
+    setMechanics(settings)
+    adopt(fresh)
+    setFoldChoice(size)
     setStopAt(BRAIN_STOP)
     setPhases([])
     setRelaxing(false)
-    // A cortex twice the layer's distance out, in the shape's own millimeters: 2.7 mm on the 150 mm built-in brain.
-    setThickness(current => ({ ...current, on: true, show: true, wall: Math.max(0.1, Math.round(2 * BRAIN_LAYER * source.scale * 10) / 10) }))
+    setThickness(current => ({ ...current, on: true, show: true, smooth: 'light', flatBase: false }))
     setView('smooth')
     setOverlay('none')
     setTool('orbit')
@@ -464,14 +444,45 @@ export function App() {
     setProjectError('')
     setProjectStatus('')
     setSavedPoint({ step: 0, edits })
+    return settings.holdStill > 0
+  }
+  const HELD = 'Its flat bottom and the lowest fifth of the wall don\'t grow and are held still, so it keeps standing flat on the bed.'
+  const importStl = async (file: File) => {
+    stopPlayback()
+    setLoading(true)
+    showImportError('')
+    try {
+      const buffer = await file.arrayBuffer()
+      const triangles = stlTriangleCount(buffer)
+      if (triangles > MAX_TRIANGLES) {
+        throw new Error(`This STL has about ${triangles.toLocaleString()} triangles, more than Growth Studio can prepare (${MAX_TRIANGLES.toLocaleString()}). Reduce it in your CAD tool, for example Fusion's Mesh › Reduce, to under ${SLOW_TRIANGLES.toLocaleString()} for interactive growth.`)
+      }
+      const { source, closed, nearlyClosed: gaps } = readUpload(buffer, file.name)
+      if (closed) {
+        const held = startClosed(source, foldChoice)
+        setNotice(`Opened ${file.name} as a closed shape with Brain folds.${held ? ` ${HELD}` : ''} Press Play growth.`)
+      } else startOpen(source)
+      setNearlyClosed(gaps)
+    } catch (error) {
+      // Name the file and say nothing was lost, since the previous model stays loaded.
+      const reason = error instanceof Error ? error.message : 'It could not be prepared.'
+      showImportError(`Couldn't open ${file.name}. ${reason} Your current model is unchanged.`)
+    } finally {
+      setLoading(false)
+    }
+  }
+  const switchToDefaultDisk = () => {
+    startOpen(null)
+    setNearlyClosed(false)
+    showImportError('')
   }
   const loadBrain = async (size: FoldSize) => {
     stopPlayback()
     setLoading(true)
     showImportError('')
     try {
-      startBrain(await loadBuiltInBrain(size))
-      setBrainUpload(null)
+      startClosed(await loadBuiltInBrain(size), size)
+      setNearlyClosed(false)
     } catch (error) {
       const reason = error instanceof Error ? error.message : 'It could not be loaded.'
       showImportError(`Couldn't load the built-in brain. ${reason} Your current model is unchanged.`)
@@ -479,112 +490,28 @@ export function App() {
       setLoading(false)
     }
   }
-  const importBrainStl = async (upload: { buffer: ArrayBuffer; name: string }, size: FoldSize, smoothing: Smoothing) => {
-    stopPlayback()
-    setLoading(true)
-    showImportError('')
-    try {
-      const triangles = stlTriangleCount(upload.buffer)
-      if (triangles > MAX_TRIANGLES) {
-        throw new Error(`It has about ${triangles.toLocaleString()} triangles, more than Growth Studio can read (${MAX_TRIANGLES.toLocaleString()}). Reduce it in your CAD tool first.`)
-      }
-      // Rebuilding takes a moment; let Preparing… show first.
-      await new Promise(resolve => setTimeout(resolve, 30))
-      const { source, check } = brainFromStl(upload.buffer, upload.name, size, smoothing)
-      startBrain(source)
-      setBrainUpload(upload)
-      setRebuildMessage({ source, text: rebuildNote(check, size, smoothing) })
-    } catch (error) {
-      const reason = error instanceof OpenShapeError || error instanceof Error ? error.message : 'It could not be prepared.'
-      const refused = error instanceof OpenShapeError ? { ...upload, kind: 'open' as const }
-        : error instanceof ThinShapeError ? { ...upload, kind: 'thin' as const } : null
-      showImportError(`Couldn't use ${upload.name}. ${reason} Your current model is unchanged.`, refused)
-    } finally {
-      setLoading(false)
-    }
-  }
-  // Brain mode can't fill an open surface, or rebuild walls thinner than its folds, so this opens the same STL in sheet
-  // mode with the Brain folds preset instead: it grows brain-like folds over the surface as it is, so an opening stays
-  // open and walls keep their thickness. Settings start from sheet mode's defaults.
-  const openInSheetWithBrainFolds = (upload: { buffer: ArrayBuffer; name: string }) => guard(`Open ${upload.name} in sheet mode?`, 'Discard and open', () => {
-    stopPlayback()
-    setLoading(true)
-    try {
-      const source = readGrowthStl(upload.buffer, upload.name)
-      // A flat bottom doesn't grow, so the print still stands on it (brush Paint to grow there anyway).
-      let bottom = false
-      const fresh = freshSurface(source, null, DISK_DEFAULTS, surface => {
-        const erase = flatBottomErase(surface.rest, surface.indices)
-        if (erase) { surface.paint.erase.set(erase); bottom = true }
-      })
-      const built = PRESETS.find(preset => preset.id === 'brain')!.build(fresh.openRims.length)
-      // Holding the parts that don't grow keeps the erased bottom where it is while the walls fold.
-      const settings = { ...DISK_DEFAULTS, ...built.mechanics, holdStill: bottom ? 1 : 0 }
-      fresh.setMechanics(settings)
-      fresh.setLayers(built.layers)
-      setBrainUpload(null)
-      setMode('sheet')
-      setInput(source)
-      setMechanics(settings)
-      adopt(fresh)
-      setSelectedLayerId(built.layers[0]?.id ?? null)
-      setPhases(built.phases ?? [])
-      setStopAt(built.stopAt ?? STOP_DEFAULTS)
-      setThickness(THICKNESS_DEFAULTS)
-      setCenterExport(false)
-      setView(fresh.indices.length / 3 > SLOW_TRIANGLES ? 'smooth' : 'cells')
-      setTool('orbit')
-      setOverlay('field')
-      setSavedPoint({ step: 0, edits })
-      showImportError('')
-      setExportStatus('')
-      setProjectError('')
-      setProjectStatus('')
-      setNotice(`Opened ${upload.name} in sheet mode with Brain folds.${bottom ? ' Its flat bottom and the lowest fifth of the wall don\'t grow and are held still, so it keeps standing flat on the bed.' : ''} Press Play growth.`)
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : 'It could not be prepared.'
-      showImportError(`Couldn't open ${upload.name}. ${reason} Your current model is unchanged.`)
-    } finally {
-      setLoading(false)
-    }
-  })
-  const switchMode = (next: 'sheet' | 'brain') => {
-    if (next === mode) return
-    if (next === 'brain') guard('Switch to brain mode?', 'Discard and switch', () => void loadBrain(brainFold))
-    else guard('Switch to sheet mode?', 'Discard and switch', leaveBrainMode)
-  }
-  // Before growth, Fold size rebuilds the starting shape: the built-in brain at another spacing, or the upload again.
-  // Once the brain has grown, it keeps the shape and the timeline: growth carries on with the new split length, and the
-  // folds already grown stay. Smoothing always rebuilds, since it changes the starting shape itself.
-  const changeBrainFold = (size: FoldSize) => {
-    const brain = input?.brain
-    if (!brain || size === brainFold) return
+  // Fold size changes the split length, at any time: growth carries on at the new size, and what has grown stays. Only
+  // the built-in brain, before it grows, is swapped for one meshed at the new size, as a fresh brain of that size starts.
+  const changeFold = (size: FoldSize) => {
+    if (size === foldNow) return
     const label = FOLD_SIZES[size].label
-    if (!grown && (brain.builtin || brainUpload)) {
-      guard(`Rebuild the brain with ${label.toLowerCase()} folds?`, 'Rebuild', () => {
-        if (brain.builtin) void loadBrain(size)
-        else if (brainUpload) void importBrainStl(brainUpload, size, brainSmoothing)
-      })
+    if (!grown && input?.brain) {
+      guard(`Load the built-in brain with ${label.toLowerCase()} folds?`, 'Load', () => void loadBrain(size))
       return
     }
     setMechanics(current => {
-      const settings = foldMechanics(current, size, brain.foldSize)
+      const settings = foldMechanics(current, size, preparedEdge.current, shapeRadius)
       disk.setMechanics(settings)
       return settings
     })
-    setBrainFold(size)
-    // A brain that stopped at Stop at would stop again at once, so move the stop on.
+    setFoldChoice(size)
+    // A shape that stopped at Stop at would stop again at once, so move the stop on.
     const moved = !active && stopAt.kind === 'step' && step >= stopAt.value
     if (moved) setStopAt({ kind: 'step', value: step + BRAIN_CONTINUE })
     // Short enough for one line beside the playback buttons, or two balanced lines; the numbers stay with their words.
     if (!active) setNotice(!grown ? `${label} folds as it grows. Press Play growth.`
       : moved ? `${label} folds from step\u00a0${step}. Stop at is now\u00a0${step + BRAIN_CONTINUE}.` : `${label} folds from step\u00a0${step}. Press Play growth.`)
     touch()
-  }
-  const changeBrainSmoothing = (level: Smoothing) => {
-    const upload = brainUpload
-    if (!input?.brain || input.brain.builtin || !upload || input.brain.smoothing === level) return
-    guard(`Rebuild with ${SMOOTHING[level].label.toLowerCase()} smoothing?`, 'Rebuild', () => void importBrainStl(upload, brainFold, level))
   }
 
   const modelName = (input?.name.replace(/\.stl$/i, '') ?? 'default-disk')
@@ -595,9 +522,7 @@ export function App() {
       : result === 'cancelled' ? 'Save cancelled.' : `Could not save ${filename}.`
   const exportMesh = async (format: 'obj' | 'stl') => {
     const made = solidOn ? makeSolid(thickness.wall, thickness.rim, thickness.side, thickness.size, thickness.smooth, thickness.bevel, thickness.sharpAngle) : null
-    if (closedLayer && !outer.solid) setExportStatus('Building the outer layer…')
-    const layer = closedLayer ? await outer.request() : null
-    if (closedLayer && !layer) { setExportStatus("The outer layer couldn't be built, so nothing was exported."); return }
+    const layer = closedOn ? closedPrint ?? makeClosed(thickness.smooth, thickness.bevel, thickness.sharpAngle, thickness.flatBase, baseCut) : null
     const surface = made?.solid.positions ?? layer?.positions ?? disk.positions, indices = made?.solid.indices ?? layer?.indices ?? disk.indices
     // A solid is written in millimeters: the STL's own, or the default disk at its chosen size.
     const positions = input ? growthExportPositions(surface, input, centerExport) : made ? surface.map(value => value * made.mmPerUnit) : surface
@@ -608,7 +533,7 @@ export function App() {
     const written = result === 'saved' || result === 'downloaded'
     setExportStatus(describe(result, filename) + (made && written
       ? ` Solid with a ${thickness.wall} mm wall${sideName ? ` on the ${sideName}` : ''}, ${(indices.length / 3).toLocaleString()} triangles${input ? '' : `, ${thickness.size} mm on its longest side`}.`
-      : layer && written ? ` Closed solid with a ${thickness.wall.toFixed(1)} mm outer layer, ${(indices.length / 3).toLocaleString()} triangles.` : ''))
+      : layer && written ? ` Closed solid, ${(indices.length / 3).toLocaleString()} triangles${thickness.flatBase ? `, the bottom ${baseCut.toFixed(1)} mm cut flat` : ''}.` : ''))
   }
   // Resolves true once the project is written or handed to the browser as a download.
   const saveProject = async () => {
@@ -639,13 +564,13 @@ export function App() {
       stopPlayback()
       setInput(project.source)
       adopt(restored)
-      setBrainUpload(null)
-      setMode(project.source?.brain ? 'brain' : 'sheet')
-      if (project.source?.brain) {
-        // The fold size growth was using, which differs from the starting shape's if it changed while growing.
-        setBrainFold(foldSizeOf(project.mechanics.remeshLength) ?? project.source.brain.foldSize)
-        if (project.source.brain.smoothing) setBrainSmoothing(project.source.brain.smoothing)
-      }
+      setNearlyClosed(false)
+      // The fold size growth was using, which differs from the starting shape's if it changed while growing, and the
+      // edge length it was prepared at, which a finer fold size raised the vertex limit from.
+      const fold = foldSizeOf(project.mechanics.remeshLength, sourceRadius(project.source))
+      if (fold) setFoldChoice(fold)
+      preparedEdge.current = project.source?.brain ? foldLength(project.source.brain.foldSize)
+        : project.mechanics.remeshLength * Math.sqrt(project.mechanics.budgetScale)
       setCenterExport(project.centerExport ?? false)
       setMechanics(project.mechanics)
       setRelaxing(project.relaxing)
@@ -776,14 +701,22 @@ export function App() {
     const preset = PRESETS.find(p => p.id === id)
     if (!preset) return
     const built = preset.build(rims.length)
-    const nextMechanics = { ...mechanics, ...built.mechanics }
+    let nextMechanics = { ...mechanics, ...built.mechanics }
+    // Brain folds grows at the chosen fold size. A shape standing on a flat bottom keeps the bottom and the lowest fifth
+    // of its wall from growing, held still, so it still stands flat on the bed; the built-in brain has its own erase.
+    let held = false
+    if (id === 'brain') {
+      nextMechanics = foldMechanics(nextMechanics, foldChoice, preparedEdge.current, shapeRadius)
+      const erase = input && !input.brain ? flatBottomErase(disk.referencePositions, disk.indices) : null
+      if (erase) { disk.addErase(erase); nextMechanics.holdStill = 1; held = true }
+    }
     disk.setMechanics(nextMechanics)
     setMechanics(nextMechanics)
     applyLayers(built.layers)
     setSelectedLayerId(built.layers[0]?.id ?? null)
     if (built.phases) setPhases(built.phases)
     if (built.stopAt) setStopAt(built.stopAt)
-    setNotice(`Applied ${preset.name}. Press Play growth${built.phases ? ' or Run phases' : ''}.`)
+    setNotice(`Applied ${preset.name}.${held ? ` ${HELD}` : ''} Press Play growth${built.phases ? ' or Run phases' : ''}.`)
   }
   const useVariant = (snapshot: DiskSnapshot, variantMechanics: Mechanics, variantLayers: GrowthLayer[]) => {
     stopPlayback()
@@ -895,7 +828,7 @@ export function App() {
     <button disabled={active || !canSimulate} data-key="."
       data-tip={active ? 'Stop playback first.' : blockedReason || `Run ${manualSteps} steps, then pause. Change the batch size under Simulation › Advanced.`} onClick={stepOnce}><Icon name="step" /><span className="compact-label">Step {manualSteps}</span></button>
     <button disabled={loading} data-tip={input?.brain?.builtin ? 'Go back to the smooth brain at this fold size, and clear the timeline and your paint. Layers and settings stay.'
-      : 'Go back to the starting surface and clear the timeline and paint. Your layers and settings stay.'}
+      : 'Go back to the starting surface and clear the timeline and paint. Your layers and settings stay, and a flat bottom that doesn\'t grow with Brain folds is held again.'}
       onClick={() => guard('Reset to the starting surface?', 'Reset', () => void reset())}><Icon name="reset" /><span className="compact-label">Reset</span></button>
   </div>
   const status = <span className="playback-status" role="status" data-warning={Boolean(disk.initialOverlap || (!active && disk.stepStatus === 'contact') || detailLimit)}>
@@ -907,10 +840,10 @@ export function App() {
       <Viewport disk={disk} tick={tick} view={view} overlay={overlay} ghost={ghost} imported={Boolean(input)} running={running}
         tool={tool} canEdit={!loading} brush={brush} rimEdges={rimEdges} layers={layers} selectedLayerId={selectedLayer?.id ?? null}
         onStroke={onStroke} onPlace={onPlace} gravityArrow={gravityArrow} cameraKey={cameraKey} belowKey={belowKey}
-        solid={shownSolid} crossings={showSolid ? crossings?.vertices ?? null : null}
+        solid={shownSolid} crossings={shownSolid ? crossings?.vertices ?? null : null}
         print={overlay === 'print' ? { angle: printAngle, low: printResult?.low ?? -Infinity, bedTolerance: printResult?.bedTolerance ?? 0,
           twoSided: printTwoSided, marks: printResult?.marks ?? [] } : null}
-        smooth={Boolean(input?.brain)} offset={showLayer && !outer.solid ? layerOffset : 0} />
+        smooth={Boolean(input?.brain)} />
     </div>
 
     <header className="brand glass">
@@ -920,45 +853,33 @@ export function App() {
 
     <aside className="sidebar side-panel glass" aria-label="Design controls">
       <section className="model-card" aria-labelledby="model-name">
-        <div className="card-head">
-          <p className="eyebrow">Starting surface</p>
-          <div className="button-row mode-switch" role="group" aria-label="Mode">
-            <button type="button" aria-pressed={mode === 'sheet'} disabled={loading} onClick={() => switchMode('sheet')}
-              data-tip="Sheet mode: grow an open surface, such as the disk or a vase, from its rims.">Sheet</button>
-            <button type="button" aria-pressed={mode === 'brain'} disabled={loading} onClick={() => switchMode('brain')}
-              data-tip="Brain mode: grow a closed shape's whole surface over a soft core, so it folds like a brain. Start from the built-in brain or your own STL.">Brain</button>
-          </div>
-        </div>
+        <div className="card-head"><p className="eyebrow">Starting surface</p></div>
         <h2 id="model-name" data-tip={input ? input.name : 'A flat disk with one open rim, ready to grow.'}>{input ? input.name : 'Default disk'}</h2>
-        <p className="hint" data-tip={input ? `Prepared with ${disk.preparationSplits} edge splits and ${disk.preparationFlips} balancing flips.` : undefined}>
-          {input?.brain ? `Closed · ${(input.indices.length / 3).toLocaleString()} triangles · ${FOLD_SIZES[brainFold].label.toLowerCase()} folds`
+        <p className="hint" data-tip={input && !input.brain ? `Prepared with ${disk.preparationSplits} edge splits and ${disk.preparationFlips} balancing flips.` : undefined}>
+          {closedShape ? `Closed · ${(input!.indices.length / 3).toLocaleString()} triangles`
             : <>{rims.length} open {rims.length === 1 ? 'rim' : 'rims'}{input ? ` · ${(input.indices.length / 3).toLocaleString()} triangles` : ' · flat sheet'}</>}
         </p>
         <input ref={inputRef} type="file" accept=".stl,model/stl" hidden aria-label="Choose an STL file" onChange={event => {
           const file = event.currentTarget.files?.[0]
           event.currentTarget.value = ''
-          if (!file) return
-          if (mode === 'brain') void file.arrayBuffer().then(buffer => importBrainStl({ buffer, name: file.name }, brainFold, brainSmoothing))
-          else void importStl(file)
+          if (file) void importStl(file)
         }} />
-        {mode === 'brain' ? <BrainControls brain={input?.brain ?? null} foldSize={brainFold} smoothing={brainSmoothing} loading={loading}
-          canRebuild={Boolean(input?.brain?.builtin || brainUpload)} grown={grown}
-          onBuiltIn={() => guard('Load the built-in brain?', 'Discard and load', () => void loadBrain(brainFold))}
-          onUpload={() => guard('Load a new STL?', 'Discard and choose STL', () => inputRef.current?.click())}
-          onFoldSize={changeBrainFold} onSmoothing={changeBrainSmoothing} />
-        : <div className="button-row">
-          <button disabled={loading} data-tip="Load an open surface from an STL file, such as a vase base from Fusion. Open rims are found automatically."
+        <div className="button-row start-row">
+          <button type="button" disabled={loading || !input} data-tip={input ? 'Go back to the flat default disk, an open sheet that grows from its rim.' : 'You are already using the default disk.'}
+            onClick={() => guard('Switch to the default disk?', 'Discard and switch', switchToDefaultDisk)}>Default disk</button>
+          <button type="button" disabled={loading} data-tip="Start from the built-in brain: a smooth, unfolded brain made from an MRI scan, ready to fold with Brain folds."
+            onClick={() => guard('Load the built-in brain?', 'Discard and load', () => void loadBrain(foldChoice))}>Built-in brain</button>
+        </div>
+        <div className="button-row one start-row">
+          <button type="button" disabled={loading} data-tip="Load an STL, used as it is. An open surface, such as a vase, grows from its rims. A closed shape grows over its whole surface, like a brain, and keeps its walls and edges."
             onClick={() => guard('Load a new STL?', 'Discard and choose STL', () => inputRef.current?.click())}>{loading ? 'Preparing…' : 'Upload STL'}</button>
-          <button disabled={loading || !input} data-tip={input ? 'Go back to the flat default disk.' : 'You are already using the default disk.'} onClick={() => guard('Switch to the default disk?', 'Discard and switch', switchToDefaultDisk)}>Default disk</button>
-        </div>}
+        </div>
+        {input?.brain?.builtin && <p className="hint credit">{BRAIN_CREDIT.short}. <a href={BRAIN_CREDIT.url} target="_blank" rel="noreferrer"
+          data-tip={BRAIN_CREDIT.text}>Source</a></p>}
         {importError && <p className="hint" role="alert">{importError}</p>}
-        {importError && openUpload && <div className="button-row one">
-          <button type="button" disabled={loading} onClick={() => openInSheetWithBrainFolds(openUpload)}
-            data-tip={openUpload.kind === 'open'
-              ? 'Switch to sheet mode, open this STL as an open surface, and apply the Brain folds preset: the whole surface grows into brain-like folds, and the opening stays open.'
-              : 'Switch to sheet mode and apply the Brain folds preset to this STL as it is: its walls aren\'t rebuilt on brain mode\'s grid, so they start intact, but their two faces fold separately, so check the thickness after growth. A flat bottom, if it has one, stays flat, and the lowest fifth of the wall doesn\'t fold.'}>Open in Sheet mode with Brain folds</button>
+        {nearlyClosed && input && rims.length > 0 && <div className="overlap-warning" role="status">
+          <p>This STL looks almost closed: its open {rims.length === 1 ? 'edge is' : 'edges are'} short, like a hairline gap, so it grows as an open surface from {rims.length === 1 ? 'that gap' : 'those gaps'}. If it should be closed, close the {rims.length === 1 ? 'gap' : 'gaps'} in your CAD tool and upload it again.</p>
         </div>}
-        {rebuildMessage?.source === input && rebuildMessage.text && <div className="overlap-warning rebuild-note" role="status"><p>{rebuildMessage.text}</p></div>}
         {/* About dense uploads; a brain's triangles come from growth, which this advice can't reduce. */}
         {!input?.brain && disk.indices.length / 3 > SLOW_TRIANGLES && <div className="overlap-warning" role="status">
           <p>{(disk.indices.length / 3).toLocaleString()} triangles: each step can take seconds. The view stays responsive, but the shape changes slowly. For interactive growth, reduce below {SLOW_TRIANGLES.toLocaleString()} (Fusion: Mesh › Reduce).</p>
@@ -1035,10 +956,9 @@ export function App() {
         </details></section>
 
         <section><details><summary data-tip="How growing folds push apart when they touch, so the surface never passes through itself.">Contact in growth field</summary>
-          <Slider label="Repel distance" value={mechanics.repelDistance}
-            display={input ? `${(mechanics.repelDistance * input.scale).toFixed(1)} mm` : percent(mechanics.repelDistance, 1)}
-            min={0.004} max={0.04} step={0.001} title="How far apart folds in the growth field stay when they meet."
-            onChange={value => change('repelDistance', value)} />
+          <Slider label="Repel distance" value={Math.min(12, repelMm)} display={`${repelMm.toFixed(1)} mm`} min={0} max={12} step={0.1}
+            title={`How far apart folds in the growth field stay when they meet, in millimeters${input ? '' : ' on the starting disk at its print size; gaps print smaller as it grows'}. For printing: folds closer than your nozzle width, about 0.4 mm, fuse, and on a sheet the wall fills the gap too, so add the wall's thickness.`}
+            onChange={mm => change('repelDistance', Math.min(REPEL_MAX_UNITS, mm / mmPerUnit))} />
           <Slider label="Repel strength" value={mechanics.repelStrength} display={percent(mechanics.repelStrength)} min={0.1} max={1} step={0.05}
             title="How quickly touching folds are pushed back each step." onChange={value => change('repelStrength', value)} />
         </details></section>
@@ -1046,9 +966,9 @@ export function App() {
         <section><details open={advancedOpen} onToggle={event => setAdvancedOpen(event.currentTarget.open)}><summary data-tip="Mesh resolution, motion damping, and playback speed.">Advanced</summary>
           <Slider label="Damping" value={mechanics.damping} display={percent(mechanics.damping)} min={0.02} max={0.9} step={0.01}
             title="Calms wobbling after the sheet bends. Higher settles faster but looks stiffer." onChange={value => change('damping', value)} />
-          {/* Brain mode's Fine fold size splits at 0.07, below the sheet range. */}
-          <Slider label="Remesh edge length" value={mechanics.remeshLength} display={mechanics.remeshLength.toFixed(3)} min={input?.brain ? 0.05 : 0.09} max={0.25} step={0.005}
-            title={input?.brain ? 'Split threshold while growing. Fold size sets it; smaller values hold smaller folds.'
+          {/* Fine folds split at 0.06 on an upload. */}
+          <Slider label="Remesh edge length" value={mechanics.remeshLength} display={mechanics.remeshLength.toFixed(3)} min={0.05} max={0.25} step={0.005}
+            title={surfaceGrowth ? 'Split threshold while growing. Fold size sets it; smaller values hold smaller folds.'
               : 'Starting triangle size and split threshold. Smaller values hold smaller folds. Press Reset to apply to an STL.'}
             onChange={value => change('remeshLength', value)} />
           <Slider label="Mesh detail limit" value={mechanics.detailScale}
@@ -1077,7 +997,7 @@ export function App() {
       {showQuickStart && <section className="quick-start glass" aria-labelledby="quick-start-title">
         <h2 id="quick-start-title">Quick start</h2>
         <ol>
-          <li><b>Pick a surface:</b> the disk, Upload STL, or Brain mode for a brain that folds.</li>
+          <li><b>Pick a surface:</b> the disk, the built-in brain, or your own STL.</li>
           <li><b>Choose where it grows:</b> layers in Growth field, or Paint on the model.</li>
           <li><b>Press Play growth</b> or Space. Drag the timeline to look back.</li>
         </ol>
@@ -1095,9 +1015,9 @@ export function App() {
           </span>}
           {showSolid && <span data-tip="The solid that Export writes. Turn it off under File › Export mesh.">Solid · {thickness.wall} mm wall{sideName && ` ${sideName === 'top' ? 'on top' : sideName === 'bottom' ? 'underneath' : sideName}`}</span>}
           {showSolid && crossings && crossings.pairs > 0 && <span className="field-key key-crossing">Wall crosses itself</span>}
-          {showLayer && <span data-tip={outer.solid ? 'The outer layer that Export writes. Turn it off under File › Export mesh.'
-            : 'A quick preview of the outer layer: the surface pushed out along its normals. The exact layer is built when growth pauses.'}>
-            Outer layer · {thickness.wall.toFixed(1)} mm{outer.solid ? '' : ' · preview'}</span>}
+          {showClosed && <span data-tip="The print solid that Export writes. Turn it off under File › Export mesh.">
+            Print solid{smoothPasses ? ` · smoothed ${smoothPasses === 2 ? 'twice' : 'once'}` : ''}{thickness.flatBase ? ` · flat base ${baseCut.toFixed(1)} mm` : ''}</span>}
+          {showClosed && crossings && crossings.pairs > 0 && <span className="field-key key-crossing">Solid crosses itself</span>}
         </div>
         <Timeline marks={snapshots.map(s => s.mark)} viewing={viewing} step={step} strain={disk.strain} every={every} active={active}
           phases={phases} phaseIndex={phaseIndex} onScrub={index => void scrub(index)} onSnapshot={() => void takeSnapshot()} onEvery={setEvery}
@@ -1119,13 +1039,20 @@ export function App() {
             {size.millimeters && <div><dt data-tip="Bounding box of the current shape, in the STL's millimeters.">Dimensions</dt><dd>{size.millimeters.map(v => Math.round(v)).join(' × ')} mm</dd></div>}
             <div><dt data-tip="How far the most-grown area has been told to expand. 100% means its edges want to be twice their starting length.">Target strain</dt><dd>{percent(disk.strain)}</dd></div>
           </dl>
-          {input?.brain ? <p className="hint">In brain mode, Fold size is in the Starting surface card. You can change it while the brain grows.</p> : <>
-          <Slider label="Fold size" value={foldSize} display={foldSize < 0.33 ? 'Fine' : foldSize < 0.66 ? 'Medium' : 'Broad'} min={0} max={1} step={0.05}
-            title={rimLayers.length ? 'Sets rim growth width and bend stiffness together. Finer folds need a narrow field and a soft sheet.' : 'Add a rim layer to use Fold size.'} disabled={!rimLayers.length}
-            onChange={setFoldSize} />
-          <p className="hint">{rimLayers.length && rimLayers[0].kind === 'rim'
-            ? `Rim width ${percent(rimLayers[0].width)} · bend ${percent(mechanics.bending, 1)}. Smaller folds also need a small Remesh edge length.`
-            : 'Add a rim layer to use Fold size.'}</p></>}
+          {surfaceGrowth && <div className="group-field"><span id="fold-size-label" data-tip="How big the folds grow over the whole surface. Change it any time: what has grown stays, and growth carries on at the new size.">Fold size</span>
+            <div className="button-row three" role="group" aria-labelledby="fold-size-label">
+              {FOLD_ORDER.map(size => <button key={size} type="button" aria-pressed={foldNow === size} disabled={loading}
+                data-tip={`${FOLD_SIZES[size].tip} ${!grown && input?.brain ? 'Loads the built-in brain meshed for this size.' : 'Growth carries on at this size from where it is.'}`}
+                onClick={() => changeFold(size)}>{FOLD_SIZES[size].label}</button>)}
+            </div>
+            {!foldNow && <p className="hint">Remesh edge length is set under Simulation › Advanced. Choose a size to use Fold size again.</p>}
+          </div>}
+          {rimLayers.length > 0 && rimLayers[0].kind === 'rim' && <>
+            <Slider label="Rim fold size" value={foldSize} display={foldSize < 0.33 ? 'Fine' : foldSize < 0.66 ? 'Medium' : 'Broad'} min={0} max={1} step={0.05}
+              title="How big a rim's folds grow: sets rim growth width and bend stiffness together. Finer folds need a narrow field and a soft sheet." onChange={setFoldSize} />
+            <p className="hint">Rim width {percent(rimLayers[0].width)} · bend {percent(mechanics.bending, 1)}. Smaller folds also need a small Remesh edge length.</p>
+          </>}
+          {!surfaceGrowth && !rimLayers.length && <p className="hint">Add a rim layer, or apply the Brain folds preset, to set the fold size.</p>}
         </section>
         <section><h2>Stats</h2>
           <dl>
@@ -1182,31 +1109,15 @@ export function App() {
                 : 'This project predates coordinate preservation. Reimport the original STL to use its coordinates.'}</p>
           </>}
           <label data-tip={canThicken ? 'Give the sheet a wall and close its open rims, so Export writes a solid ready for slicing.'
-            : 'Fill the shape and give it an outer layer, merged where folds touch, so Export writes one clean solid.'}><span>Add thickness <input type="checkbox" checked={thickness.on}
+            : 'A closed shape is a solid already. Turn this on to smooth it and cut a flat base, so Export writes a solid ready for slicing.'}><span>{canThicken ? 'Add thickness' : 'Print solid'} <input type="checkbox" checked={thickness.on}
             onChange={event => changeThickness({ on: event.currentTarget.checked })} /></span></label>
-          {closedLayer && <>
-            <Slider label="Layer thickness" value={Math.min(layerRange[1], Math.max(layerRange[0], thickness.wall))} display={`${thickness.wall.toFixed(1)} mm`}
-              min={layerRange[0]} max={layerRange[1]} step={0.1}
-              title="The layer around the grown surface, half of it outside. Thicker rounds the folds and closes the grooves. A real brain's cortex is 2.5 to 3 mm."
-              onChange={wall => changeThickness({ wall })} />
-            <label data-tip="Cut the bottom flat, so a print sits on the bed without supports under it."><span>Flat base <input type="checkbox" checked={thickness.flatBase}
-              onChange={event => changeThickness({ flatBase: event.currentTarget.checked })} /></span></label>
-            {thickness.flatBase && <Slider label="Base cut" value={baseCut} display={`${baseCut.toFixed(1)} mm`} min={baseRange[0]} max={baseRange[1]} step={0.5}
-              title="How much is cut off the bottom. A deeper cut gives a wider base to stand on." onChange={cut => changeThickness({ baseCut: cut })} />}
-            <label data-tip="Show the outer layer in the 3D view. While growing, a quick preview shows instead."><span>Show in 3D view <input type="checkbox" checked={thickness.show}
-              onChange={event => { const show = event.currentTarget.checked; setThickness(current => ({ ...current, show })) }} /></span></label>
-            <p className="hint" role="status">{active ? 'The outer layer is built when growth pauses. Meanwhile the view shows a quick preview.'
-              : outer.error ? outer.error
-                : outer.solid ? `Closed solid, ${(outer.solid.indices.length / 3).toLocaleString()} triangles. Folds that touch are merged.${thickness.flatBase ? ` The bottom ${baseCut.toFixed(1)} mm is cut flat.` : ''}`
-                  : 'Building the outer layer…'}</p>
-          </>}
-          {solidOn && <>
+          {(solidOn || closedOn) && <>
             <div className="group-field"><span id="smooth-label">Smooth surface</span>
               <div className="button-row three" role="group" aria-labelledby="smooth-label">
                 {SMOOTH_LEVELS.map(([level, label, tip]) => {
                   const sheetTriangles = disk.indices.length / 3, fits = smoothPassesFor(level, sheetTriangles) === (level === 'strong' ? 2 : level === 'light' ? 1 : 0)
                   return <button key={level} type="button" aria-pressed={thickness.smooth === level} disabled={!fits}
-                    data-tip={fits ? tip : `This sheet has ${sheetTriangles.toLocaleString()} triangles: ${label} smoothing would make more than ${SMOOTH_MAX_TRIANGLES.toLocaleString()}.${level === 'strong' ? ' Use Light.' : ''}`}
+                    data-tip={fits ? tip : `This surface has ${sheetTriangles.toLocaleString()} triangles: ${label} smoothing would make more than ${SMOOTH_MAX_TRIANGLES.toLocaleString()}.${level === 'strong' ? ' Use Light.' : ''}`}
                     onClick={() => changeThickness({ smooth: level })}>{label}</button>
                 })}
               </div>
@@ -1214,16 +1125,18 @@ export function App() {
             <Slider label="Sharp edge angle" value={thickness.sharpAngle} display={`${thickness.sharpAngle}°`} min={SHARP_ANGLE_RANGE[0]} max={SHARP_ANGLE_RANGE[1]} step={1}
               disabled={thickness.smooth === 'off' || !smoothPasses}
               title={thickness.smooth === 'off' ? 'Choose Light or Strong first. Without smoothing, every edge stays as it is.'
-                : !smoothPasses ? `This sheet has grown too large to smooth, so its edges stay as they are.`
-                  : `Edges that bend more than this in the starting shape stay sharp when smoothing${sharpCount === null ? '' : `: ${sharpCount.toLocaleString()} mesh ${sharpCount === 1 ? 'edge' : 'edges'} at ${thickness.sharpAngle}°`}. Lower it to catch softer edges, such as a shallow chamfer; raise it to smooth the facets of a coarse mesh. 30° suits most CAD exports.`}
+                : !smoothPasses ? `This surface has grown too large to smooth, so its edges stay as they are.`
+                  : `Edges that bend more than this in the starting shape, where it hasn't grown, stay sharp when smoothing${sharpCount === null ? '' : `: ${sharpCount.toLocaleString()} mesh ${sharpCount === 1 ? 'edge' : 'edges'} at ${thickness.sharpAngle}°`}. Where it grew, they fold with the surface and are smoothed like the rest. Lower it to catch softer edges, such as a shallow chamfer; raise it to smooth the facets of a coarse mesh. 30° suits most CAD exports.`}
               onChange={sharpAngle => changeThickness({ sharpAngle })} />
             <Slider label="Bevel sharp edges" value={thickness.bevel} display={percent(thickness.bevel)} min={0} max={1} step={0.05}
               disabled={thickness.smooth === 'off' || !smoothPasses || sharpCount === 0}
               title={thickness.smooth === 'off' ? 'Choose Light or Strong first. Without smoothing, sharp edges stay as they are.'
-                : !smoothPasses ? `This sheet has grown too large to smooth, so its edges stay as they are.`
-                  : sharpCount === 0 ? `This shape has no edges that bend more than ${thickness.sharpAngle}°, so there is nothing to bevel. Lower Sharp edge angle to find softer ones.`
-                    : `${sharpCount === null ? 'Some edges may bend' : `${sharpCount.toLocaleString()} mesh ${sharpCount === 1 ? 'edge bends' : 'edges bend'}`} more than ${thickness.sharpAngle}° in the starting shape, such as the edge around a flat bottom. At 0% they stay sharp, so a print sits flat on the bed. Higher values round them more; 100% is as smooth as the rest of the surface.${sharpCount === null ? ' The count shows when growth pauses.' : ''}`}
+                : !smoothPasses ? `This surface has grown too large to smooth, so its edges stay as they are.`
+                  : sharpCount === 0 ? `This shape has no edges that bend more than ${thickness.sharpAngle}° where it hasn't grown, so there is nothing to bevel. Lower Sharp edge angle to find softer ones.`
+                    : `${sharpCount === null ? 'Some edges may bend' : `${sharpCount.toLocaleString()} mesh ${sharpCount === 1 ? 'edge bends' : 'edges bend'}`} more than ${thickness.sharpAngle}° in the starting shape where it hasn't grown, such as the edge around a flat bottom. At 0% they stay sharp, so a print sits flat on the bed. Higher values round them more; 100% is as smooth as the rest of the surface.${sharpCount === null ? ' The count shows when growth pauses.' : ''}`}
               onChange={bevel => changeThickness({ bevel })} />
+          </>}
+          {solidOn && <>
             <Slider label="Wall thickness" value={thickness.wall} display={`${thickness.wall.toFixed(1)} mm`} min={0.2} max={5} step={0.1}
               title={`Total wall${input ? ", in the STL's millimeters" : ''}. Most filament printers need at least 0.8 mm, resin printers about 0.5 mm.`}
               onChange={wall => changeThickness({ wall })} />
@@ -1256,14 +1169,30 @@ export function App() {
                   : `Closed solid with no crossings, ${(solid!.indices.length / 3).toLocaleString()} triangles${smoothPasses ? `, smoothed ${smoothPasses === 2 ? 'twice' : 'once'} before the wall` : ''}${smoothPasses && sharpCount
                     ? thickness.bevel <= 0 ? ', sharp edges kept' : thickness.bevel >= 1 ? ', sharp edges rounded' : `, sharp edges beveled ${percent(thickness.bevel)}` : ''}.`}</p>
           </>}
+          {closedOn && <>
+            <label data-tip="Cut the bottom flat, so a print sits on the bed without supports under it."><span>Flat base <input type="checkbox" checked={thickness.flatBase}
+              onChange={event => changeThickness({ flatBase: event.currentTarget.checked })} /></span></label>
+            {thickness.flatBase && <Slider label="Base cut" value={baseCut} display={`${baseCut.toFixed(1)} mm`} min={baseRange[0]} max={baseRange[1]} step={0.5}
+              title="How much is cut off the bottom. A deeper cut gives a wider base to stand on." onChange={cut => changeThickness({ baseCut: cut })} />}
+            <label data-tip="Show the print solid in the 3D view while growth is paused. Growth itself always uses the grown surface."><span>Show in 3D view <input type="checkbox" checked={thickness.show}
+              onChange={event => { const show = event.currentTarget.checked; setThickness(current => ({ ...current, show })) }} /></span></label>
+            <p className="hint" role="status">{active ? 'The solid is checked when growth pauses.'
+              : !crossings ? 'Checking the solid…'
+                : crossings.failed ? "The solid couldn't be checked in this browser. It still exports."
+                : crossings.leaks ? `The solid isn't closed along ${crossings.leaks.toLocaleString()} ${crossings.leaks === 1 ? 'edge' : 'edges'}, where the surface pinches to a point. Repair the STL in your CAD tool before printing.`
+                : crossings.pairs && (disk.initialOverlap || disk.ignoringOverlaps) ? `The surface already crosses itself, so the solid does too, in ${crossingCount}${thickness.show ? ', shown in pink' : ''}. Combine the bodies in your CAD tool before printing.`
+                : crossings.pairs ? `The smoothed surface crosses itself in ${crossingCount}${thickness.show ? ', shown in pink' : ''}, where folds bend more tightly than smoothing can follow. Most slicers merge these. For a clean solid, use less smoothing: with Smooth surface off, the solid is the grown surface, which growth keeps from crossing.`
+                  : `Closed solid with no crossings, ${(closedPrint!.indices.length / 3).toLocaleString()} triangles${smoothPasses ? `, smoothed ${smoothPasses === 2 ? 'twice' : 'once'}` : ''}${smoothPasses && sharpCount
+                    ? thickness.bevel <= 0 ? ', sharp edges kept' : thickness.bevel >= 1 ? ', sharp edges rounded' : `, sharp edges beveled ${percent(thickness.bevel)}` : ''}${thickness.flatBase ? `. The bottom ${baseCut.toFixed(1)} mm is cut flat` : ''}.`}</p>
+          </>}
           <div className="button-row">
             <button disabled={active} data-tip={active ? 'Stop the simulation to export.' : solidOn ? 'Save the solid as an OBJ mesh, in millimeters.' : 'Save the current surface as an OBJ mesh.'} onClick={() => void exportMesh('obj')}>Export OBJ</button>
-            <button disabled={active} data-tip={active ? 'Stop the simulation to export.' : solidOn || closedLayer ? 'Save the solid as a binary STL for slicing, in millimeters.'
+            <button disabled={active} data-tip={active ? 'Stop the simulation to export.' : solidOn || closedOn ? 'Save the solid as a binary STL for slicing, in millimeters.'
               : canThicken ? 'Save the current surface as a binary STL for CAD or slicing. It is an open sheet, so add thickness before printing.' : 'Save the current surface as a binary STL for CAD or slicing.'}
               onClick={() => void exportMesh('stl')}>Export STL</button>
           </div>
           <p className="hint" role="status">{exportStatus || (solidOn ? 'Exports the solid.' : canThicken ? 'The surface is an open sheet. Add thickness to print it.'
-            : closedLayer ? 'Exports the filled shape with its outer layer.' : 'The surface is closed. Add thickness to fill it and merge folds that touch.')}</p>
+            : closedOn ? 'Exports the print solid.' : 'The surface is closed, a solid already. Turn on Print solid to smooth it or cut a flat base.')}</p>
         </section>
       </TabPanel>
     </aside>

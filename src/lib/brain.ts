@@ -1,41 +1,29 @@
-// Brain mode: the built-in brain, the growth recipe behind the Instagram reel, and turning an uploaded STL into a
-// smooth, closed starting brain. See docs/brain-mode.md.
-import { BufferGeometry } from 'three'
+// The built-in brain, the growth recipe behind the Instagram reel (the Brain folds preset), and Fold size, which sets
+// how big folds grow over a whole surface on any shape. See docs/brain-mode.md.
 import { DISK_DEFAULTS } from '../physics/growingDisk'
 import { createLayer, type GrowthLayer } from '../physics/growthLayers'
 import type { BrainInfo, GrowthStlSource } from '../physics/growthStl'
 import type { StopAt } from './diskProject'
-import { parseStl } from './stl'
-import { closedRemesh } from './voxel'
 
 export type FoldSize = 'fine' | 'medium' | 'broad'
-export type Smoothing = 'light' | 'medium' | 'strong'
 type Mechanics = typeof DISK_DEFAULTS
 
-// Fold size sets the starting mesh's spacing and the split length during growth: folds come out about three mesh
-// edges wide. Medium is the reel. Changed after growth has begun, only the split length changes, so the brain keeps its
-// shape and grows on at the new size.
+// Fold size sets the split length during growth: folds come out about three mesh edges wide. Medium is the reel. The
+// built-in brain also comes meshed at each size's spacing. The lengths are for the built-in brain's size; foldLength
+// scales them to any shape. Changing it only changes the split length, so a shape keeps what it has grown and grows on
+// at the new size.
 export const FOLD_SIZES: Record<FoldSize, { label: string; spacing: number; remeshLength: number; tip: string }> = {
   fine: { label: 'Fine', spacing: 0.045, remeshLength: 0.07, tip: 'More, smaller folds. Grows more slowly.' },
   medium: { label: 'Medium', spacing: 0.055, remeshLength: 0.09, tip: 'Folds a little smaller than a real brain’s, as in the reel.' },
   broad: { label: 'Broad', spacing: 0.065, remeshLength: 0.11, tip: 'Fewer, wider folds. Grows fastest.' },
 }
-// Blur passes on the rebuilt shape. Strong smooths away existing folds, such as those of an adult brain scan.
-export const SMOOTHING: Record<Smoothing, { label: string; passes: number; tip: string }> = {
-  light: { label: 'Light', passes: 1, tip: 'Keep the shape close to the STL, only softening its facets.' },
-  medium: { label: 'Medium', passes: 4, tip: 'Round off small bumps and creases.' },
-  strong: { label: 'Strong', passes: 12, tip: 'Smooth it like a fetal brain. Use this for a scan that is already folded.' },
-}
 export const FOLD_ORDER: FoldSize[] = ['fine', 'medium', 'broad']
-export const SMOOTHING_ORDER: Smoothing[] = ['light', 'medium', 'strong']
 
-// The built-in brain's bounding-sphere radius in solver units. Uploads are scaled to match, so one recipe gives the
-// same folds on any shape; their own millimeters are kept in the source's scale.
+// The built-in brain's bounding-sphere radius in solver units. Uploads have radius 1, so Fold size's lengths are scaled
+// by the shape's radius over this, and one recipe gives folds of the same size compared with any shape.
 export const BRAIN_RADIUS = 1.173
 // The built-in brain is shown and exported 150 mm from front to back, a little smaller than an adult brain.
 export const BRAIN_LENGTH_MM = 150
-// The recipe's outer layer: 0.02 units out from the surface, a 2.7 mm cortex on the 150 mm brain.
-export const BRAIN_LAYER = 0.02
 export const BRAIN_STOP: StopAt = { kind: 'step', value: 420 }
 // How far Stop at moves when Fold size changes on a brain that has stopped there, so Play growth carries on.
 export const BRAIN_CONTINUE = 140
@@ -48,25 +36,48 @@ export const BRAIN_CREDIT = {
   url: 'https://3d.nih.gov/entries/3dpx-002739',
 }
 
-export function brainMechanics(current: Mechanics, size: FoldSize): Mechanics {
+// A shape's bounding-sphere radius, measured as three.js measures an STL's: from the middle of its bounding box.
+export function boundingRadius(positions: ArrayLike<number>) {
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity]
+  for (let i = 0; i < positions.length; i++) { lo[i % 3] = Math.min(lo[i % 3], positions[i]); hi[i % 3] = Math.max(hi[i % 3], positions[i]) }
+  const c = lo.map((l, a) => (l + hi[a]) / 2)
+  let radius = 0
+  for (let i = 0; i < positions.length; i += 3) radius = Math.max(radius, Math.hypot(positions[i] - c[0], positions[i + 1] - c[1], positions[i + 2] - c[2]))
+  return radius || 1
+}
+
+// The split length for a fold size on a shape of this radius.
+export function foldLength(size: FoldSize, radius = BRAIN_RADIUS) {
+  return FOLD_SIZES[size].remeshLength * radius / BRAIN_RADIUS
+}
+
+// The Brain folds recipe at a fold size, for a shape of this radius.
+export function brainMechanics(current: Mechanics, size: FoldSize, radius = BRAIN_RADIUS): Mechanics {
   return {
     ...current, growthRate: DISK_DEFAULTS.growthRate, compoundGrowth: 0, bending: 0.2, gravity: 0,
-    coreStiffness: 0.005, coreGrowth: 0.1, detailScale: 3.5, remeshLength: FOLD_SIZES[size].remeshLength, budgetScale: 1,
+    coreStiffness: 0.005, coreGrowth: 0.1, detailScale: 3.5, remeshLength: foldLength(size, radius), budgetScale: 1,
   }
 }
 
-// Settings for growing on at another fold size, on a brain whose starting shape was meshed for `prepared`: the new split
-// length, and a vertex limit raised for a finer size, since the same area needs (old / new)² as many vertices. A broader
-// size keeps the limit: lowering it to the vertices already there would stop splitting at once and warn of a limit
-// that growth never reached.
-export function foldMechanics(current: Mechanics, size: FoldSize, prepared: FoldSize): Mechanics {
-  const remeshLength = FOLD_SIZES[size].remeshLength
-  return { ...current, remeshLength, budgetScale: Math.max(1, (FOLD_SIZES[prepared].remeshLength / remeshLength) ** 2) }
+// The most a finer fold size raises the vertex limit: from the sheet's 0.145 split length to Fine on an upload would be
+// (0.145 / 0.060)² ≈ 5.9, more than a browser tab grows comfortably.
+export const MAX_BUDGET_SCALE = 4
+
+// Settings for growing on at another fold size, on a surface prepared with edges up to `preparedLength`: the new split
+// length, and a vertex limit raised for a finer size, since the same area needs (old / new)² as many vertices. The limit
+// never drops while the shape grows: going broader after a finer size keeps it, since lowering it to the vertices
+// already there would stop splitting at once and warn of a limit that growth never reached.
+export function foldMechanics(current: Mechanics, size: FoldSize, preparedLength: number, radius = BRAIN_RADIUS): Mechanics {
+  const remeshLength = foldLength(size, radius)
+  const needed = (preparedLength / remeshLength) ** 2
+  return { ...current, remeshLength, budgetScale: Math.min(MAX_BUDGET_SCALE, Math.max(1, current.budgetScale ?? 1, needed)) }
 }
 
-// The fold size whose split length the settings use, or null for another length set under Advanced.
-export function foldSizeOf(remeshLength: number): FoldSize | null {
-  return FOLD_ORDER.find(size => Math.abs(FOLD_SIZES[size].remeshLength - remeshLength) < 1e-9) ?? null
+// The fold size whose split length the settings use on a shape of this radius, or null for another length set under
+// Advanced.
+// Within 1%, so a shape measured a little differently, such as a project saved by an older version, still matches.
+export function foldSizeOf(remeshLength: number, radius = BRAIN_RADIUS): FoldSize | null {
+  return FOLD_ORDER.find(size => Math.abs(foldLength(size, radius) - remeshLength) <= 0.01 * remeshLength) ?? null
 }
 
 export function brainLayers(): GrowthLayer[] {
@@ -149,111 +160,4 @@ export async function loadBuiltInBrain(size: FoldSize) {
   const response = await fetch(BRAIN_FILES[size])
   if (!response.ok) throw new Error('The built-in brain could not be loaded. Check your connection and try again.')
   return builtInBrainSource(await response.arrayBuffer(), size)
-}
-
-export class OpenShapeError extends Error {}
-// A closed STL whose walls are too thin to survive the rebuild at its fold size.
-export class ThinShapeError extends Error {}
-
-// How much of an uploaded STL its rebuild kept. kept is the rebuilt volume over the STL's, or null when the STL isn't
-// closed and has no volume to compare. thickness is the STL's mean wall thickness, 2 × volume / area, in mm.
-export type RebuildCheck = { kept: number | null; pieces: number; originalPieces: number; shrink: number; thickness: number | null; grid: number }
-
-// Signed volume and area of a triangle soup or an indexed mesh.
-function volumeAndArea(P: ArrayLike<number>, I?: ArrayLike<number>) {
-  let volume = 0, area = 0
-  const count = I ? I.length : P.length / 3
-  for (let t = 0; t < count; t += 3) {
-    const a = (I ? I[t] : t) * 3, b = (I ? I[t + 1] : t + 1) * 3, c = (I ? I[t + 2] : t + 2) * 3
-    const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2], vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2]
-    volume += (P[a] * (P[b + 1] * P[c + 2] - P[b + 2] * P[c + 1]) - P[a + 1] * (P[b] * P[c + 2] - P[b + 2] * P[c]) + P[a + 2] * (P[b] * P[c + 1] - P[b + 1] * P[c])) / 6
-    area += Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 2
-  }
-  return { volume, area }
-}
-function pieceCount(I: ArrayLike<number>, vertices: number) {
-  const parent = Int32Array.from({ length: vertices }, (_, i) => i)
-  const find = (a: number) => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a] } return a }
-  for (let t = 0; t < I.length; t += 3) { const r = find(I[t]); parent[find(I[t + 1])] = r; parent[find(I[t + 2])] = r }
-  const roots = new Set<number>()
-  for (let t = 0; t < I.length; t += 3) roots.add(find(I[t]))
-  return roots.size
-}
-const sortedSize = (P: ArrayLike<number>) => {
-  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity]
-  for (let i = 0; i < P.length; i++) { lo[i % 3] = Math.min(lo[i % 3], P[i]); hi[i % 3] = Math.max(hi[i % 3], P[i]) }
-  return hi.map((h, a) => h - lo[a]).sort((a, b) => a - b)
-}
-// Most of the shape is gone: under a quarter of its volume, or one of its sides under 60 % of its length.
-const lost = (check: RebuildCheck) => (check.kept !== null && check.kept < 0.25) || check.shrink < 0.6
-// Part of it is gone: under three quarters of its volume, or broken into more pieces than the STL has.
-const thinned = (check: RebuildCheck) => (check.kept !== null && check.kept < 0.75) || check.pieces > check.originalPieces
-const mm = (value: number) => value < 10 ? value.toFixed(1) : String(Math.round(value))
-
-// An uploaded STL as a brain-mode starting shape: Y-up, scaled to the built-in brain's size, and rebuilt as one smooth,
-// closed surface at the fold size's spacing. Walls thinner than about the rebuild's grid don't survive it, so the result
-// is checked against the STL: a closed STL that mostly disappeared is refused as too thin, and one that lost part of
-// itself loads with a note (rebuildNote) saying what to change.
-export function brainFromStl(buffer: ArrayBuffer, name: string, size: FoldSize, smoothing: Smoothing): { source: GrowthStlSource; check: RebuildCheck } {
-  const model = parseStl(buffer, name)
-  const geometry = new BufferGeometry()
-  try {
-    const original = Float32Array.from(model.geometry.getAttribute('position').array)
-    geometry.setAttribute('position', model.geometry.getAttribute('position').clone())
-    geometry.rotateX(-Math.PI / 2)
-    const scale = BRAIN_RADIUS / model.radius, mmPerUnit = model.radius / BRAIN_RADIUS
-    geometry.scale(scale, scale, scale)
-    const soup = Float32Array.from(geometry.getAttribute('position').array)
-    const faces = Uint32Array.from({ length: soup.length / 3 }, (_, i) => i)
-    // Closed: nearly every edge is shared by two faces. CAD exports can have a few hairline gaps, which the rebuild seals.
-    const { topology } = model
-    const closed = topology.boundaryEdges <= 0.005 * topology.uniqueEdges
-    const before = volumeAndArea(original), sizeBefore = sortedSize(original)
-    const rebuild = (fold: FoldSize, level: Smoothing) => {
-      const mesh = closedRemesh(soup, faces, { spacing: FOLD_SIZES[fold].spacing, smoothing: SMOOTHING[level].passes })
-      const after = mesh.indices.length ? volumeAndArea(mesh.positions, mesh.indices) : { volume: 0, area: 0 }
-      const sizeAfter = mesh.positions.length ? sortedSize(mesh.positions).map(s => s * mmPerUnit) : [0, 0, 0]
-      const check: RebuildCheck = {
-        kept: closed && Math.abs(before.volume) > 0 ? Math.abs(after.volume) * mmPerUnit ** 3 / Math.abs(before.volume) : null,
-        pieces: mesh.indices.length ? pieceCount(mesh.indices, mesh.positions.length / 3) : 0,
-        originalPieces: topology.components,
-        shrink: Math.min(...sizeAfter.map((s, a) => s / Math.max(1e-9, sizeBefore[a]))),
-        thickness: closed && before.area > 0 ? 2 * Math.abs(before.volume) / before.area : null,
-        grid: FOLD_SIZES[fold].spacing / 2 * mmPerUnit,
-      }
-      return { mesh, check, empty: mesh.insideShare < 0.3 || mesh.indices.length < 12 }
-    }
-    const { mesh: rebuilt, check, empty } = rebuild(size, smoothing)
-    // A sheet with open edges has no inside to fill: the voxel shell around it is all that's left.
-    if (empty && !closed) {
-      throw new OpenShapeError('Brain mode needs a closed shape, and this STL is an open surface. Use Sheet mode, and try the Brain folds preset.')
-    }
-    if (empty || lost(check)) {
-      // Suggest a gentler setting only if it really keeps the shape: rebuild with it and see.
-      const gentler: [FoldSize, Smoothing, string][] = []
-      if (smoothing !== 'light') gentler.push([size, 'light', 'Light smoothing'])
-      if (size !== 'fine') gentler.push(['fine', 'light', smoothing === 'light' ? 'Fine folds' : 'Fine folds with Light smoothing'])
-      const works = gentler.filter(([fold, level]) => { const tried = rebuild(fold, level); return !tried.empty && !lost(tried.check) }).map(([, , label]) => label)
-      const walls = check.thickness ? `Its walls, about ${mm(check.thickness)} mm thick, are` : 'Parts of it are'
-      const share = Math.round(100 * (check.kept ?? check.shrink))
-      const kept = empty || share < 1 ? 'almost nothing' : `only ${share}% of it`
-      const tryFirst = works.length ? `Try ${works.join(', or ')}, or use` : 'Use'
-      throw new ThinShapeError(`${walls} too thin for brain mode at ${FOLD_SIZES[size].label.toLowerCase()} folds: its rebuild kept ${kept}. ${tryFirst} Sheet mode with the Brain folds preset, which keeps the walls as they are.`)
-    }
-    const brain: BrainInfo = { builtin: false, foldSize: size, smoothing }
-    return { source: { name, scale: mmPerUnit, sourceCenter: model.sourceCenter, positions: rebuilt.positions, indices: rebuilt.indices, brain }, check }
-  } finally {
-    geometry.dispose()
-    model.geometry.dispose()
-  }
-}
-
-// What a rebuild that lost part of the STL tells the designer, or '' when it kept the shape.
-export function rebuildNote(check: RebuildCheck, size: FoldSize, smoothing: Smoothing) {
-  if (!thinned(check)) return ''
-  const kept = check.kept !== null ? `${Math.round(100 * check.kept)}% of the shape` : 'the shape'
-  const pieces = check.pieces > check.originalPieces ? `, in ${check.pieces} pieces` : ''
-  const fix = smoothing !== 'light' ? 'Light smoothing keeps more of it.' : size !== 'fine' ? 'Fine folds keep more of it.'
-    : 'Thicken the thinnest parts, or use Sheet mode with the Brain folds preset.'
-  return `The rebuild kept ${kept}${pieces}: parts thinner than about ${mm(check.grid * 2)} mm were lost. ${fix}`
 }

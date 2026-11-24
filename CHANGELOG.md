@@ -1,5 +1,25 @@
 # Growth Studio Changelog
 
+## 0.16.0 2026-11-24
+
+- **One tool instead of Sheet and Brain mode.** The Starting surface card has three starting surfaces: **Default disk**, **Built-in brain** and **Upload STL**. Before, a Sheet / Brain switch chose between two modes, each with its own upload button.
+  - An STL opens as it is. An open surface, such as a vase, grows from its rims. A closed shape grows over its whole surface with Brain folds, as brain mode did.
+  - Every preset is offered for every shape. Rim presets grow from open rims, so on a closed shape only Brain folds and paint grow.
+- **Closed shapes are no longer rebuilt.** An uploaded closed STL keeps its own triangles, so thin walls and designed edges stay. Before, brain mode rebuilt it on a voxel grid, which erased walls thinner than about a fold and rounded designed edges.
+  - A pen holder with 2.4 mm walls, refused by 0.15.0, now opens. Its print solid at the start keeps 99.7% of the STL's volume, within 0.2 mm of its size, and all 55 cm² of its flat bottom.
+  - Faces a CAD export turned the wrong way are turned back; a sealed hollow's inner wall keeps facing into the hollow. Two bodies exported together that touch are refused, with how to combine them. An STL whose open edges are short, like a hairline gap, opens as an open surface, with a note saying how to close them.
+  - If it stands on a flat bottom, the bottom and the lowest fifth of the wall don't grow and are held still, so it keeps standing flat on the bed. The same happens when you apply Brain folds to an open surface. Reset now paints that back; before, Reset cleared it with the rest of the paint.
+- **Print solid.** On a closed shape, File › Export mesh has **Print solid** instead of Add thickness: the grown surface itself, smoothed with **Smooth surface**, **Sharp edge angle** and **Bevel sharp edges** as a sheet is, and cut by **Flat base** and **Base cut**. Before, a voxel outer layer was built around it.
+  - Nothing is merged, so close folds stay two surfaces. The app checks the solid as it checks a sheet's wall, and shows any crossings in pink.
+  - On the built-in brain grown 142 steps, the Light-smoothed solid with a 5 mm flat base has 107,516 triangles, every edge shared by two faces, and stands on 10.8 cm². On a fully grown brain it builds in about 0.15 s, measured in Node; the outer layer took 2 to 4 s in the app.
+- **Sharp edges stay sharp only where the surface hasn't grown.** Where it grew, a designed edge folds with it, and keeping it sharp made smoothing fold the surface over it: the pen holder grown 160 steps at Medium crossed itself in 18 places when Light-smoothed, and now in none; grown at Fine and then Broad, 56 places became 5, at tight folds. Edges that don't grow, such as one around a held flat bottom, stay sharp as before.
+- **Fold size works on any shape, at any time.** It moved to the Form tab, and shows whenever something grows over the whole surface. It changes only the split length, so growth carries on at the new size with nothing rebuilt, also on an upload. Before, it rebuilt an uploaded STL before growth.
+  - Its lengths scale to the shape, so a size gives folds of the same size compared with any shape.
+  - On the built-in brain, changing to Fine at step 83 carried on to step 142, raising the vertex limit from 26,208 to 43,323. Going back to a broader size keeps the raised limit, so growth isn't stopped at the vertices already there.
+  - The rim's Fold size slider is now **Rim fold size**.
+- **Repel distance in millimeters, from 0 to 12 mm.** Before, it ran from 0.004 to 0.04 model units: up to 2 mm on the default disk at 100 mm. Its tooltip says what a gap needs in print: folds closer than your nozzle width, about 0.4 mm, fuse, and on a sheet the wall fills the gap too. On the default disk the millimeters are for the starting disk at its print size.
+- **Gone:** the Sheet and Brain buttons, the voxel rebuild and its Smoothing buttons, Layer thickness, and the refusal of thin walls with its Open in Sheet mode with Brain folds button. Projects saved from brain mode's uploads open as ordinary closed shapes, their rebuilt mesh kept.
+
 ## 0.15.0 2026-11-24
 
 - **No limit for mesh detail.** Simulation › Advanced has a **No limit** switch under Mesh detail limit. Growth keeps refining until the mesh has 240,000 vertices, about 480,000 triangles: as large a sheet as Growth Studio can open again. Before, the most was 4× the starting limit.
