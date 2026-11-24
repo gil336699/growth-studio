@@ -175,3 +175,16 @@ it('keeps the print check and its support angle, and opens older projects at the
   flat.printAngle = 5
   expect(() => deserializeDiskProject(JSON.stringify(flat))).toThrow('invalid design data')
 })
+
+it('keeps No limit for the mesh detail, opens older projects with the limit on, and refuses other values', () => {
+  const input = sheet()
+  const disk = createGrowingDisk(input)
+  const json = serializeDiskProject({ source: source(input), disk: disk.snapshot(), mechanics: { ...DISK_DEFAULTS, unlimitedDetail: 1 }, revision: 0, ...settings })
+  expect(deserializeDiskProject(json).mechanics.unlimitedDetail).toBe(1)
+  const older = JSON.parse(json)
+  delete older.mechanics.unlimitedDetail
+  expect(deserializeDiskProject(JSON.stringify(older)).mechanics.unlimitedDetail).toBe(0)
+  const odd = JSON.parse(json)
+  odd.mechanics.unlimitedDetail = 2
+  expect(() => deserializeDiskProject(JSON.stringify(odd))).toThrow('invalid design data')
+})

@@ -26,13 +26,13 @@ import { rangeFill } from './lib/rangeFill'
 import { saveFile, type SaveResult } from './lib/saveFile'
 import { facingSign, printScale, RIM_ROUNDNESS, thicken, WALL_SHIFT, type RimProfile, type Solid, type WallSide } from './lib/thicken'
 import { SHARP_ANGLE_RANGE, sharpEdges, SMOOTH_MAX_TRIANGLES, smoothPassesFor, smoothSheet, type SmoothLevel } from './lib/smoothSheet'
-import { createGrowingDisk, DISK_DEFAULTS, diskGravityDirection, type BrushMode, type DiskSnapshot, type StrokePoint } from './physics/growingDisk'
+import { createGrowingDisk, DISK_DEFAULTS, diskGravityDirection, NO_LIMIT_VERTICES, type BrushMode, type DiskSnapshot, type StrokePoint } from './physics/growingDisk'
 import type { GrowthLayer, Vec3 } from './physics/growthLayers'
 import { growthExportPositions, readGrowthStl, type GrowthStlSource } from './physics/growthStl'
 import { MAX_TRIANGLES, SLOW_TRIANGLES, stlTriangleCount } from './lib/stl'
 import {
   BRAIN_CONTINUE, BRAIN_LAYER, BRAIN_START_EDGE, BRAIN_STOP, brainErase, brainFromStl, brainLayers, brainMechanics, FOLD_SIZES,
-  flatBottomErase, foldMechanics, foldSizeOf, loadBuiltInBrain, OpenShapeError, rebuildNote, SMOOTHING, type FoldSize, type Smoothing,
+  flatBottomErase, foldMechanics, foldSizeOf, loadBuiltInBrain, OpenShapeError, rebuildNote, SMOOTHING, ThinShapeError, type FoldSize, type Smoothing,
 } from './lib/brain'
 import { useOuterLayer } from './lib/useOuterLayer'
 import { usePrintCheck } from './lib/usePrintCheck'
@@ -128,9 +128,11 @@ export function App() {
   const [input, setInput] = useState<GrowthStlSource | null>(null)
   const [loading, setLoading] = useState(false)
   const [importError, setImportError] = useState('')
-  // An open STL that brain mode refused, so its message can offer to open it in sheet mode with Brain folds instead.
-  const [openUpload, setOpenUpload] = useState<{ buffer: ArrayBuffer; name: string } | null>(null)
-  const showImportError = (text: string, refused: { buffer: ArrayBuffer; name: string } | null = null) => { setImportError(text); setOpenUpload(refused) }
+  // An STL that brain mode refused, because it's open or its walls are too thin, so its message can offer to open it in
+  // sheet mode with Brain folds instead.
+  type Refused = { buffer: ArrayBuffer; name: string; kind: 'open' | 'thin' }
+  const [openUpload, setOpenUpload] = useState<Refused | null>(null)
+  const showImportError = (text: string, refused: Refused | null = null) => { setImportError(text); setOpenUpload(refused) }
   const [centerExport, setCenterExport] = useState(false)
   const [projectStatus, setProjectStatus] = useState('')
   const [projectError, setProjectError] = useState('')
@@ -494,13 +496,16 @@ export function App() {
       setRebuildMessage({ source, text: rebuildNote(check, size, smoothing) })
     } catch (error) {
       const reason = error instanceof OpenShapeError || error instanceof Error ? error.message : 'It could not be prepared.'
-      showImportError(`Couldn't use ${upload.name}. ${reason} Your current model is unchanged.`, error instanceof OpenShapeError ? upload : null)
+      const refused = error instanceof OpenShapeError ? { ...upload, kind: 'open' as const }
+        : error instanceof ThinShapeError ? { ...upload, kind: 'thin' as const } : null
+      showImportError(`Couldn't use ${upload.name}. ${reason} Your current model is unchanged.`, refused)
     } finally {
       setLoading(false)
     }
   }
-  // Brain mode can't fill an open surface, so this opens the same STL in sheet mode with the Brain folds preset instead:
-  // it grows brain-like folds over the open sheet and keeps its opening. Settings start from sheet mode's defaults.
+  // Brain mode can't fill an open surface, or rebuild walls thinner than its folds, so this opens the same STL in sheet
+  // mode with the Brain folds preset instead: it grows brain-like folds over the surface as it is, so an opening stays
+  // open and walls keep their thickness. Settings start from sheet mode's defaults.
   const openInSheetWithBrainFolds = (upload: { buffer: ArrayBuffer; name: string }) => guard(`Open ${upload.name} in sheet mode?`, 'Discard and open', () => {
     stopPlayback()
     setLoading(true)
@@ -947,9 +952,11 @@ export function App() {
           <button disabled={loading || !input} data-tip={input ? 'Go back to the flat default disk.' : 'You are already using the default disk.'} onClick={() => guard('Switch to the default disk?', 'Discard and switch', switchToDefaultDisk)}>Default disk</button>
         </div>}
         {importError && <p className="hint" role="alert">{importError}</p>}
-        {importError && openUpload && <div className="button-row">
+        {importError && openUpload && <div className="button-row one">
           <button type="button" disabled={loading} onClick={() => openInSheetWithBrainFolds(openUpload)}
-            data-tip="Switch to sheet mode, open this STL as an open surface, and apply the Brain folds preset: the whole surface grows into brain-like folds, and the opening stays open.">Open in Sheet mode with Brain folds</button>
+            data-tip={openUpload.kind === 'open'
+              ? 'Switch to sheet mode, open this STL as an open surface, and apply the Brain folds preset: the whole surface grows into brain-like folds, and the opening stays open.'
+              : 'Switch to sheet mode and apply the Brain folds preset to this STL as it is: its walls aren\'t rebuilt on brain mode\'s grid, so they start intact, but their two faces fold separately, so check the thickness after growth. A flat bottom, if it has one, stays flat, and the lowest fifth of the wall doesn\'t fold.'}>Open in Sheet mode with Brain folds</button>
         </div>}
         {rebuildMessage?.source === input && rebuildMessage.text && <div className="overlap-warning rebuild-note" role="status"><p>{rebuildMessage.text}</p></div>}
         {/* About dense uploads; a brain's triangles come from growth, which this advice can't reduce. */}
@@ -1044,9 +1051,14 @@ export function App() {
             title={input?.brain ? 'Split threshold while growing. Fold size sets it; smaller values hold smaller folds.'
               : 'Starting triangle size and split threshold. Smaller values hold smaller folds. Press Reset to apply to an STL.'}
             onChange={value => change('remeshLength', value)} />
-          <Slider label="Mesh detail limit" value={mechanics.detailScale} display={`${disk.growthBudget.toLocaleString()} vertices · ${mechanics.detailScale}×`}
-            min={1} max={4} step={0.25} title="How many vertices growth can add. Higher limits keep folds refining but run slower."
+          <Slider label="Mesh detail limit" value={mechanics.detailScale}
+            display={mechanics.unlimitedDetail ? `No limit · up to ${NO_LIMIT_VERTICES.toLocaleString()} vertices` : `${disk.growthBudget.toLocaleString()} vertices · ${mechanics.detailScale}×`}
+            min={1} max={4} step={0.25} disabled={mechanics.unlimitedDetail > 0}
+            title={mechanics.unlimitedDetail ? 'Turn off No limit to set a limit.' : 'How many vertices growth can add. Higher limits keep folds refining but run slower.'}
             onChange={value => change('detailScale', value)} />
+          <label data-tip={`Let growth keep refining until the mesh has ${NO_LIMIT_VERTICES.toLocaleString()} vertices, about ${(2 * NO_LIMIT_VERTICES).toLocaleString()} triangles: as large a sheet as Growth Studio can open again (a wall doubles it). Each step gets slower as the mesh grows. Without any limit the tab would run out of memory and lose unsaved work.`}>
+            <span>No limit <input type="checkbox" checked={mechanics.unlimitedDetail > 0}
+              onChange={event => change('unlimitedDetail', event.currentTarget.checked ? 1 : 0)} /></span></label>
           <Slider label="Playback speed" value={stepsPerUpdate} display={`${stepsPerUpdate} ${stepsPerUpdate === 1 ? 'step' : 'steps'} per update`}
             min={1} max={input ? 3 : 5} step={1} title="Steps calculated between shape updates. Higher grows faster, in bigger jumps." disabled={Boolean(manualQueue)}
             onChange={value => (input ? setImportSpeed : setSpeed)(value)} />
@@ -1126,7 +1138,9 @@ export function App() {
             <div><dt data-tip="Growth slows after a blocked step, then recovers. 100% is full speed.">Growth speed after contact</dt><dd>{Math.round(disk.growthThrottle * 100)}%</dd></div>
           </dl>
           {slowed && <p className="hint">Blocked steps slowed growth so folds don't pass through each other. A larger Repel distance usually means fewer blocked steps.</p>}
-          {detailLimit && <p className="hint">Mesh detail limit reached. Raise it under Simulation › Advanced to keep refining.</p>}
+          {detailLimit && <p className="hint">{mechanics.unlimitedDetail
+            ? `Reached ${NO_LIMIT_VERTICES.toLocaleString()} vertices, as large a sheet as Growth Studio can open again as an STL.`
+            : 'Mesh detail limit reached. Raise it, or turn on No limit, under Simulation › Advanced to keep refining.'}</p>}
         </section>
       </TabPanel>
       <TabPanel idBase="output" id="explore" value={rightTab}>

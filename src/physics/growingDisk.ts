@@ -23,6 +23,8 @@ export const DISK_DEFAULTS = {
   // Also multiplies the vertex limit, to follow a split length other than the one the model was prepared for. Brain
   // mode sets it when Fold size changes after growth has begun: the same area needs (old / new)² as many vertices.
   budgetScale: 1,
+  // 1 lets growth keep refining past the detail limit, up to NO_LIMIT_VERTICES (Simulation › Advanced › No limit).
+  unlimitedDetail: 0,
   // A soft core under the surface, as in a brain: each solver pass pulls every vertex this share of the way back
   // toward its place on the starting shape, so growth buckles into folds instead of inflating the model. 0 is off.
   coreStiffness: 0,
@@ -33,6 +35,12 @@ export const DISK_DEFAULTS = {
   // while the rest folds. 0 lets them move with the growing parts. Gravity holds them either way.
   holdStill: 0,
 }
+
+// The most vertices growth adds with No limit. A grown surface has about two triangles per vertex (2V − 4 + 4 per
+// handle when closed, a little fewer when open), so its sheet exports within the 500,000 triangles an STL upload may
+// have (MAX_TRIANGLES), with room for handles, and Growth Studio can open it again. A wall doubles the triangles.
+// Going on without any limit would end with the tab out of memory and unsaved work lost.
+export const NO_LIMIT_VERTICES = 240_000
 
 export function diskGravityDirection({ gravityTilt, gravityHeading }: typeof DISK_DEFAULTS): [number, number, number] {
   const tilt = gravityTilt * Math.PI / 180
@@ -535,7 +543,8 @@ export function createGrowingDisk(input?: { positions: Float32Array; indices: Ui
       mechanics = { ...settings }
       gravityDirection = diskGravityDirection(settings)
       // Never drop below the current vertex count: lowering the limit only stops further splits.
-      growthBudget = Math.max(positions.length / 3, Math.round(baseBudget * settings.detailScale * settings.budgetScale))
+      growthBudget = Math.max(positions.length / 3,
+        settings.unlimitedDetail ? NO_LIMIT_VERTICES : Math.round(baseBudget * settings.detailScale * settings.budgetScale))
     },
     get strain() { return acceptedGrowth },
     get layers(): GrowthLayer[] { return structuredClone(layers) },

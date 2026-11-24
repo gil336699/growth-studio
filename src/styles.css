@@ -194,6 +194,7 @@ input[type='checkbox']:checked::before { transform: translateX(15px); }
 .button-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
 h2 + .button-row, .model-card .button-row { margin-top: 0; }
 .button-row.three { grid-template-columns: repeat(3, 1fr); }
+.button-row.one { grid-template-columns: 1fr; }
 .group-field { display: grid; gap: 6px; margin-top: 14px; color: var(--label); font-size: 12.5px; }
 .group-field > .button-row { margin-top: 0; }
 .button-row[role='group'] { gap: 0; padding: 2px; border-radius: 999px; background: var(--well); }

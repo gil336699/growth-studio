@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest'
-import { createGrowingDisk, DISK_DEFAULTS } from './growingDisk'
+import { createGrowingDisk, DISK_DEFAULTS, NO_LIMIT_VERTICES } from './growingDisk'
+import { MAX_TRIANGLES } from '../lib/stl'
 import { createDiskSelfContact } from './diskSelfContact'
 
 it('moves an unsettled disk in Relax only without adding strain', () => {
@@ -87,6 +88,21 @@ it('scales the mesh detail limit and keeps it through a saved snapshot', () => {
   expect(reopened.growthBudget).toBe(base * 2)
   reopened.setMechanics({ ...DISK_DEFAULTS, detailScale: 1 })
   expect(reopened.growthBudget).toBe(base)
+})
+
+it('lets growth refine with no limit, up to as many vertices as an STL Growth Studio can open again', () => {
+  const disk = createGrowingDisk()
+  const base = disk.growthBudget
+  disk.setMechanics({ ...DISK_DEFAULTS, detailScale: 2, unlimitedDetail: 1 })
+  expect(disk.growthBudget).toBe(NO_LIMIT_VERTICES)
+  // A closed surface has 2V − 4 + 4 per handle triangles, so even with 2,000 handles its sheet's export still opens.
+  expect(NO_LIMIT_VERTICES * 2 - 4 + 4 * 2000).toBeLessThanOrEqual(MAX_TRIANGLES)
+  // Through a saved snapshot, and back to the limit when it's turned off.
+  const reopened = createGrowingDisk(undefined, DISK_DEFAULTS.remeshLength, disk.snapshot())
+  reopened.setMechanics({ ...DISK_DEFAULTS, unlimitedDetail: 1 })
+  expect(reopened.growthBudget).toBe(NO_LIMIT_VERTICES)
+  reopened.setMechanics({ ...DISK_DEFAULTS, detailScale: 2 })
+  expect(reopened.growthBudget).toBe(base * 2)
 })
 
 it('scales the vertex limit by budgetScale on top of the detail limit, never below the current count', () => {

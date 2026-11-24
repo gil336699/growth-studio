@@ -68,7 +68,7 @@ Brain mode grows a closed shape the way a brain folds. The whole surface grows o
 | Setting | Effect |
 | --- | --- |
 | Built-in brain | Loads the built-in brain again. |
-| Upload STL | Loads your own closed shape. Brain mode rebuilds it as one smooth, closed surface, scaled so the recipe gives the same fold size, and keeps its millimeters. Walls thinner than the rebuild's grid, about the fold size, don't survive it. A shape that mostly disappears is refused with what to try, and one that loses part of itself loads with a note saying how much was kept. An open surface, such as a vase, is refused. For both, Sheet mode with the Brain folds preset keeps the mesh as it is. For an open surface, the refusal has a button, **Open in Sheet mode with Brain folds**, that does this in one click. If the STL stands on a flat bottom, the bottom and the lowest fifth of the wall don't grow and are held still, so it keeps standing flat on the bed: a pen holder grown 300 steps kept all 55 cm² of its flat bottom, where the preset alone left none of it flat. |
+| Upload STL | Loads your own closed shape. Brain mode rebuilds it as one smooth, closed surface, scaled so the recipe gives the same fold size, and keeps its millimeters. Walls thinner than the rebuild's grid, about the fold size, don't survive it. A shape that mostly disappears is refused with what to try, and one that loses part of itself loads with a note saying how much was kept. An open surface, such as a vase, is refused. For both, Sheet mode with the Brain folds preset keeps the mesh as it is. Both refusals have a button, **Open in Sheet mode with Brain folds**, that does this in one click. A thin-walled shape's walls start intact there, but their two faces fold separately, so check the thickness after growth. If the STL stands on a flat bottom, the bottom and the lowest fifth of the wall don't grow and are held still, so it keeps standing flat on the bed: a pen holder grown 300 steps kept all 55 cm² of its flat bottom, where the preset alone left none of it flat. |
 | Fold size | **Fine**, **Medium** or **Broad**: more, smaller folds, or fewer, wider ones. Medium is the reel. Before growth, it rebuilds the starting shape at a finer or coarser mesh. Once the brain has grown, it keeps its folds and the timeline, and grows on at the new size from that step. If growth had stopped at Stop at, the stop moves 140 steps on. Reset goes back to a smooth brain at the current size. |
 | Smoothing | For an upload: **Light**, the default, keeps it close to the STL and its thin walls; **Medium** rounds off small bumps; **Strong** smooths an already folded brain scan back into a smooth one. |
 
@@ -153,7 +153,7 @@ To grow a vase that prints without supports, let it grow upward: under **Simulat
 | Gravity | Pulls on the growth field only. The rest of the model stays in place. |
 | Hold parts that don't grow | Under Gravity. Holds the parts with no growth exactly where they are, as gravity does, so an erased flat bottom stays on the bed while the rest folds. On whenever gravity is. |
 | Repel distance and strength | How far apart folds in the growth field stay when they meet, and how quickly they are pushed back. |
-| Remesh edge length, Mesh detail limit (Simulation › Advanced) | Starting triangle size and how many vertices growth can add. |
+| Remesh edge length, Mesh detail limit (Simulation › Advanced) | Starting triangle size and how many vertices growth can add. **No limit** lets growth keep refining up to 240,000 vertices, about 480,000 triangles: as large a sheet as Growth Studio can open again. |
 
 The **Form** tab reports waves on each growing rim, size compared with the start, and dimensions in millimeters. The **Color** menu above the 3D view switches the overlay between the growth field, growth so far, recent contact, and the [print check](#print-check), and **Ghost** shows the starting shape.
 
@@ -187,6 +187,7 @@ This is a position-based design model. It is not a validated thin-shell or biolo
 ## Known limits
 
 - Each step takes longer as the vertex count rises. On the weave vase the physics takes about 12 ms a step at 1,200 vertices and about 39 ms at 3,500. Growth runs in a background worker, so the view, orbiting, and the controls stay smooth while steps slow down: Chrome draws about 54 frames per second on a closed pot whose steps take about 100 ms. The shape itself updates only as fast as the steps finish.
+- With **No limit**, steps keep getting slower as the mesh refines. Bloom on the weave vase ran 23 steps a second at 2,074 vertices, where the default limit stops it, and 12 a second at 6,084 vertices four minutes later.
 - Stop takes effect after the step in progress, which on a dense mesh can take a few hundred milliseconds. The status reads Stopping… until then.
 - Opening a very large STL still pauses the page while the surface is prepared, about 6 seconds for 181,000 triangles.
 - Very dense growth, such as compounding beyond about 15 times the original size, blocks more steps and slows to a few steps per second.

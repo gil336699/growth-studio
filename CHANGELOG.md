@@ -1,5 +1,15 @@
 # Growth Studio Changelog
 
+## 0.15.0 2026-11-24
+
+- **No limit for mesh detail.** Simulation › Advanced has a **No limit** switch under Mesh detail limit. Growth keeps refining until the mesh has 240,000 vertices, about 480,000 triangles: as large a sheet as Growth Studio can open again. Before, the most was 4× the starting limit.
+  - On the weave vase, Bloom reached the default limit, 2,074 vertices, after 135 s and stopped refining. With No limit it went on to 6,084 vertices in four more minutes, while steps slowed from 23 to 12 a second.
+  - The one limit left protects your work: with no limit at all, the tab would run out of memory and lose unsaved work.
+  - The hint at the limit now mentions No limit. Projects save it; older projects open with it off.
+- **Brain mode offers sheet mode for thin walls too.** When brain mode refuses an STL because its walls are thinner than its folds, such as a pen holder exported as a solid with 2.4 mm walls, its message now has the **Open in Sheet mode with Brain folds** button that 0.14.0 added for open STLs. Before, the message only said to use sheet mode.
+  - The walls aren't rebuilt there, so they start intact. Their two faces fold separately, so check the thickness after growth.
+  - The button spans the panel, so its label no longer wraps onto three lines.
+
 ## 0.14.0 2026-11-23
 
 - **Brain mode's refusal of an open STL now has a way forward.** Its message has a button, **Open in Sheet mode with Brain folds**, that loads the same STL as an open sheet with the Brain folds preset in one click. Before, you had to switch modes, upload the file again and find the preset yourself.
