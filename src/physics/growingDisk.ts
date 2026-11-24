@@ -29,6 +29,9 @@ export const DISK_DEFAULTS = {
   // How much the core itself grows, as a share of the surface's growth. The anchors scale about the starting
   // shape's center by 1 + coreGrowth × strain.
   coreGrowth: 0.1,
+  // 1 holds the parts that don't grow exactly where they are, as gravity does, so an erased flat bottom stays on the bed
+  // while the rest folds. 0 lets them move with the growing parts. Gravity holds them either way.
+  holdStill: 0,
 }
 
 export function diskGravityDirection({ gravityTilt, gravityHeading }: typeof DISK_DEFAULTS): [number, number, number] {
@@ -611,15 +614,17 @@ export function createGrowingDisk(input?: { positions: Float32Array; indices: Ui
         positions[i] += velocity
       }
       // Gravity loads only the growth field. Hold the rest of the model in place so the load
-      // bends the growing region instead of dragging the whole model along the pull.
+      // bends the growing region instead of dragging the whole model along the pull. Hold still does the same without
+      // the load.
       const anchored: number[] = []
-      if (mechanics.gravity > 0) {
+      if (mechanics.gravity > 0 || mechanics.holdStill > 0) {
         for (let vertex = 0; vertex < field.length; vertex++) {
           const weight = field[vertex]
           if (weight === 0) {
             anchored.push(vertex * 3)
             continue
           }
+          if (!(mechanics.gravity > 0)) continue
           const load = 0.004 * mechanics.gravity * weight
           for (let axis = 0; axis < 3; axis++) {
             positions[vertex * 3 + axis] += load * gravityDirection[axis]

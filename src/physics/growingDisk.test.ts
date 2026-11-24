@@ -128,6 +128,23 @@ it('holds the model outside the growth field in place under sideways gravity', (
   expect(shiftX(loaded)).toBeGreaterThan(0.001)
 })
 
+it('holds the parts that do not grow in place with Hold still, without gravity', () => {
+  const run = (holdStill: number) => {
+    const disk = createGrowingDisk()
+    disk.setMechanics({ ...DISK_DEFAULTS, growthRate: 0.008, holdStill })
+    const start = disk.positions.slice()
+    for (let i = 0; i < 40; i++) disk.step(true)
+    const fixed = [...disk.field.keys()].filter(vertex => disk.field[vertex] === 0 && vertex < start.length / 3)
+    const moved = fixed.filter(vertex => [0, 1, 2].some(axis => disk.positions[vertex * 3 + axis] !== start[vertex * 3 + axis]))
+    return { fixed: fixed.length, moved: moved.length }
+  }
+  const held = run(1), free = run(0)
+  expect(held.fixed).toBeGreaterThan(0)
+  expect(held.moved).toBe(0)
+  // Without it, the growing rim drags some of them along.
+  expect(free.moved).toBeGreaterThan(0)
+})
+
 it('repels a vertex from a nearby face even when all three face vertices are far away', () => {
   const positions = Float32Array.of(
     -1, 0, -1, 1, 0, -1, 0, 0, 1,

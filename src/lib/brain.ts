@@ -86,6 +86,34 @@ export function brainErase(rest: ArrayLike<number>) {
   return erase
 }
 
+// Growth to erase on an uploaded sheet that stands on a flat bottom, so Brain folds leave the bottom flat and its edge on
+// the bed. Full erase on the bottom and the lowest fifth of the wall, fading out by 30% of the height; above that it grows
+// as usual. With Hold still on, the erased part then stays put: on a pen holder grown 300 steps, its bottom moved 0.00 mm
+// and stayed the lowest point, where erasing only up to 8% let folds sag 12.5 mm below it. It is ordinary painted
+// erase, so the brush can change it. Returns null when the shape doesn't stand on a flat
+// bottom: downward faces at its lowest level must cover at least 1% of its footprint. Y is up, as in the app.
+export function flatBottomErase(rest: ArrayLike<number>, indices: ArrayLike<number>): Float32Array | null {
+  const n = rest.length / 3
+  let low = Infinity, high = -Infinity, x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity
+  for (let v = 0; v < n; v++) {
+    const x = rest[v * 3], y = rest[v * 3 + 1], z = rest[v * 3 + 2]
+    low = Math.min(low, y); high = Math.max(high, y); x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z)
+  }
+  const height = high - low, level = height * 0.002
+  if (!(height > 0)) return null
+  let bottom = 0
+  for (let f = 0; f < indices.length / 3; f++) {
+    const a = indices[f * 3] * 3, b = indices[f * 3 + 1] * 3, c = indices[f * 3 + 2] * 3
+    if (rest[a + 1] - low > level || rest[b + 1] - low > level || rest[c + 1] - low > level) continue
+    const ux = rest[b] - rest[a], uz = rest[b + 2] - rest[a + 2], wx = rest[c] - rest[a], wz = rest[c + 2] - rest[a + 2]
+    bottom += Math.abs(ux * wz - uz * wx) / 2 // its area seen from below; flat at the lowest level, so all of it faces down
+  }
+  if (bottom < 0.01 * (x1 - x0) * (z1 - z0)) return null
+  const erase = new Float32Array(n)
+  for (let v = 0; v < n; v++) erase[v] = 1 - smooth(0.2, 0.3, (rest[v * 3 + 1] - low) / height)
+  return erase
+}
+
 // Reads a packed brain file: "GSB1", vertex and triangle counts, float positions and 16-bit indices.
 export function decodeBrainMesh(buffer: ArrayBuffer) {
   const view = new DataView(buffer)

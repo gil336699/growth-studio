@@ -101,9 +101,11 @@ it('opens projects saved before newer mechanics settings existed', () => {
   delete legacy.mechanics.repelDistance
   delete legacy.mechanics.repelStrength
   delete legacy.mechanics.detailScale
+  delete legacy.mechanics.holdStill // before 0.13.1: it opens with Hold still off
   delete legacy.disk.baseBudget
   delete legacy.disk.growthThrottle
   expect(deserializeDiskProject(JSON.stringify(legacy)).mechanics).toEqual(DISK_DEFAULTS)
+  expect(() => deserializeDiskProject(JSON.stringify({ ...legacy, mechanics: { ...legacy.mechanics, holdStill: 2 } }))).toThrow('invalid design data')
   legacy.disk.growthThrottle = 0
   expect(() => deserializeDiskProject(JSON.stringify(legacy))).toThrow('invalid design data')
   legacy.disk.growthThrottle = 0.5

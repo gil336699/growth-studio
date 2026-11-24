@@ -1,5 +1,12 @@
 # Growth Studio Changelog
 
+## 0.14.0 2026-11-23
+
+- **Brain mode's refusal of an open STL now has a way forward.** Its message has a button, **Open in Sheet mode with Brain folds**, that loads the same STL as an open sheet with the Brain folds preset in one click. Before, you had to switch modes, upload the file again and find the preset yourself.
+  - If the STL stands on a flat bottom, the bottom and the lowest fifth of the wall don't grow and are held still, so it keeps standing flat on the bed. A pen holder grown 300 steps this way kept all 55 cm² of its flat bottom on the bed. With the preset alone, none of it stayed flat.
+  - The part that doesn't grow is ordinary paint: brush Paint to grow there anyway.
+- **Hold parts that don't grow.** A new switch under Simulation › Gravity holds the parts with no growth exactly where they are, as gravity already does, so an erased flat bottom stays put while the rest folds. It's on whenever gravity is. Projects save it; older projects open with it off.
+
 ## 0.13.0 2026-11-23
 
 - **Sharp edge angle.** A new slider above Bevel sets how sharp an edge must be in the starting shape to stay sharp when smoothing: 30° by default, from 10° to 60°. Before, it was a fixed 40°.

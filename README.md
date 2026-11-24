@@ -68,7 +68,7 @@ Brain mode grows a closed shape the way a brain folds. The whole surface grows o
 | Setting | Effect |
 | --- | --- |
 | Built-in brain | Loads the built-in brain again. |
-| Upload STL | Loads your own closed shape. Brain mode rebuilds it as one smooth, closed surface, scaled so the recipe gives the same fold size, and keeps its millimeters. Walls thinner than the rebuild's grid, about the fold size, don't survive it. A shape that mostly disappears is refused with what to try, and one that loses part of itself loads with a note saying how much was kept. An open surface, such as a vase, is refused. For both, Sheet mode with the Brain folds preset keeps the mesh as it is. |
+| Upload STL | Loads your own closed shape. Brain mode rebuilds it as one smooth, closed surface, scaled so the recipe gives the same fold size, and keeps its millimeters. Walls thinner than the rebuild's grid, about the fold size, don't survive it. A shape that mostly disappears is refused with what to try, and one that loses part of itself loads with a note saying how much was kept. An open surface, such as a vase, is refused. For both, Sheet mode with the Brain folds preset keeps the mesh as it is. For an open surface, the refusal has a button, **Open in Sheet mode with Brain folds**, that does this in one click. If the STL stands on a flat bottom, the bottom and the lowest fifth of the wall don't grow and are held still, so it keeps standing flat on the bed: a pen holder grown 300 steps kept all 55 cm² of its flat bottom, where the preset alone left none of it flat. |
 | Fold size | **Fine**, **Medium** or **Broad**: more, smaller folds, or fewer, wider ones. Medium is the reel. Before growth, it rebuilds the starting shape at a finer or coarser mesh. Once the brain has grown, it keeps its folds and the timeline, and grows on at the new size from that step. If growth had stopped at Stop at, the stop moves 140 steps on. Reset goes back to a smooth brain at the current size. |
 | Smoothing | For an upload: **Light**, the default, keeps it close to the STL and its thin walls; **Medium** rounds off small bumps; **Strong** smooths an already folded brain scan back into a smooth one. |
 
@@ -151,6 +151,7 @@ To grow a vase that prints without supports, let it grow upward: under **Simulat
 | Stop at | Stops playback at a size, target strain, or step. |
 | Fold size (Form) | Sets rim width and bend stiffness together, from fine to broad. |
 | Gravity | Pulls on the growth field only. The rest of the model stays in place. |
+| Hold parts that don't grow | Under Gravity. Holds the parts with no growth exactly where they are, as gravity does, so an erased flat bottom stays on the bed while the rest folds. On whenever gravity is. |
 | Repel distance and strength | How far apart folds in the growth field stay when they meet, and how quickly they are pushed back. |
 | Remesh edge length, Mesh detail limit (Simulation › Advanced) | Starting triangle size and how many vertices growth can add. |
 

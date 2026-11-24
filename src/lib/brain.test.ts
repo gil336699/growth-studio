@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { createGrowingDisk, DISK_DEFAULTS } from '../physics/growingDisk'
 import {
-  BRAIN_LENGTH_MM, BRAIN_RADIUS, BRAIN_START_EDGE, brainErase, brainFromStl, brainLayers, brainMechanics,
+  BRAIN_LENGTH_MM, BRAIN_RADIUS, BRAIN_START_EDGE, brainErase, brainFromStl, flatBottomErase, brainLayers, brainMechanics,
   builtInBrainSource, decodeBrainMesh, FOLD_ORDER, FOLD_SIZES, foldMechanics, foldSizeOf, OpenShapeError, rebuildNote, ThinShapeError,
   type FoldSize,
 } from './brain'
@@ -194,3 +194,34 @@ it('saves and reopens a brain project with its core and brain settings, and open
   huge.mechanics.budgetScale = 9
   expect(() => deserializeDiskProject(JSON.stringify(huge))).toThrow('invalid design data')
 }, 30000)
+
+describe('flatBottomErase', () => {
+  // An open pot, Y up: a flat bottom of radius 1 and a wall 2 tall, open on top.
+  function pot(flat = true) {
+    const positions: number[] = [0, flat ? 0 : -0.3, 0], indices: number[] = [], ring = 24, rows = 10
+    for (let j = 0; j <= rows; j++) for (let k = 0; k < ring; k++) {
+      const a = 2 * Math.PI * k / ring, y = 2 * j / rows
+      positions.push(Math.cos(a), flat ? y : y + 0.3 * (j === 0 ? 0 : 0), Math.sin(a))
+    }
+    const at = (j: number, k: number) => 1 + j * ring + (k % ring)
+    for (let k = 0; k < ring; k++) indices.push(0, at(0, k + 1), at(0, k))
+    for (let j = 0; j < rows; j++) for (let k = 0; k < ring; k++) indices.push(at(j, k), at(j, k + 1), at(j + 1, k + 1), at(j, k), at(j + 1, k + 1), at(j + 1, k))
+    return { rest: Float32Array.from(positions), indices: Uint32Array.from(indices) }
+  }
+
+  it('keeps a flat bottom and the lowest fifth of the wall from growing, and the rest grows', () => {
+    const { rest, indices } = pot(), erase = flatBottomErase(rest, indices)!
+    expect(erase).not.toBeNull()
+    for (let v = 0; v < erase.length; v++) {
+      const y = rest[v * 3 + 1] / 2 // as a share of the height
+      if (y <= 0.2) expect(erase[v]).toBeCloseTo(1, 6)
+      if (y >= 0.3) expect(erase[v]).toBeCloseTo(0, 6)
+    }
+  })
+
+  it('leaves a shape alone when it doesn\'t stand on a flat bottom', () => {
+    // The same pot with its bottom pushed down into a cone: nothing lies flat at the lowest level.
+    const { rest, indices } = pot(false)
+    expect(flatBottomErase(rest, indices)).toBeNull()
+  })
+})

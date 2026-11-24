@@ -32,7 +32,7 @@ import { growthExportPositions, readGrowthStl, type GrowthStlSource } from './ph
 import { MAX_TRIANGLES, SLOW_TRIANGLES, stlTriangleCount } from './lib/stl'
 import {
   BRAIN_CONTINUE, BRAIN_LAYER, BRAIN_START_EDGE, BRAIN_STOP, brainErase, brainFromStl, brainLayers, brainMechanics, FOLD_SIZES,
-  foldMechanics, foldSizeOf, loadBuiltInBrain, OpenShapeError, rebuildNote, SMOOTHING, type FoldSize, type Smoothing,
+  flatBottomErase, foldMechanics, foldSizeOf, loadBuiltInBrain, OpenShapeError, rebuildNote, SMOOTHING, type FoldSize, type Smoothing,
 } from './lib/brain'
 import { useOuterLayer } from './lib/useOuterLayer'
 import { usePrintCheck } from './lib/usePrintCheck'
@@ -128,6 +128,9 @@ export function App() {
   const [input, setInput] = useState<GrowthStlSource | null>(null)
   const [loading, setLoading] = useState(false)
   const [importError, setImportError] = useState('')
+  // An open STL that brain mode refused, so its message can offer to open it in sheet mode with Brain folds instead.
+  const [openUpload, setOpenUpload] = useState<{ buffer: ArrayBuffer; name: string } | null>(null)
+  const showImportError = (text: string, refused: { buffer: ArrayBuffer; name: string } | null = null) => { setImportError(text); setOpenUpload(refused) }
   const [centerExport, setCenterExport] = useState(false)
   const [projectStatus, setProjectStatus] = useState('')
   const [projectError, setProjectError] = useState('')
@@ -319,7 +322,9 @@ export function App() {
     phaseRun.current = false
     setPhaseIndex(null)
   }
-  const freshSurface = (source: GrowthStlSource | null, keepLayers: GrowthLayer[] | null, settings = mechanics) => {
+  // prepare, if given, works on the new surface before it starts, such as painting erase onto it.
+  const freshSurface = (source: GrowthStlSource | null, keepLayers: GrowthLayer[] | null, settings = mechanics,
+    prepare?: (surface: ReturnType<typeof createGrowingDisk>) => void) => {
     // A brain-mode shape is already meshed at its fold size, so preparation leaves it as it is.
     const fresh = createGrowingDisk(source ?? undefined, source?.brain ? BRAIN_START_EDGE : settings.remeshLength)
     if (keepLayers) {
@@ -332,6 +337,7 @@ export function App() {
       fresh.paint.erase.set(brainErase(fresh.rest))
       fresh.setLayers(fresh.layers)
     }
+    prepare?.(fresh)
     return createDiskSession(fresh, { source, mechanics: settings })
   }
   const reset = async () => {
@@ -369,7 +375,7 @@ export function App() {
   const importStl = async (file: File) => {
     stopPlayback()
     setLoading(true)
-    setImportError('')
+    showImportError('')
     try {
       const buffer = await file.arrayBuffer()
       const triangles = stlTriangleCount(buffer)
@@ -393,7 +399,7 @@ export function App() {
     } catch (error) {
       // Name the file and say nothing was lost, since the previous model stays loaded.
       const reason = error instanceof Error ? error.message : 'It could not be prepared.'
-      setImportError(`Couldn't open ${file.name}. ${reason} Your current model is unchanged.`)
+      showImportError(`Couldn't open ${file.name}. ${reason} Your current model is unchanged.`)
     } finally {
       setLoading(false)
     }
@@ -402,7 +408,7 @@ export function App() {
     stopPlayback()
     setInput(null)
     adopt(freshSurface(null, null))
-    setImportError('')
+    showImportError('')
     setExportStatus('')
     setProjectError('')
     setProjectStatus('')
@@ -421,7 +427,7 @@ export function App() {
     setView('cells')
     setOverlay('field')
     setNotice('')
-    setImportError('')
+    showImportError('')
     setExportStatus('')
     setProjectError('')
     setProjectStatus('')
@@ -451,7 +457,7 @@ export function App() {
     setCoreOpen(true)
     setCenterExport(false)
     setNotice('')
-    setImportError('')
+    showImportError('')
     setExportStatus('')
     setProjectError('')
     setProjectStatus('')
@@ -460,13 +466,13 @@ export function App() {
   const loadBrain = async (size: FoldSize) => {
     stopPlayback()
     setLoading(true)
-    setImportError('')
+    showImportError('')
     try {
       startBrain(await loadBuiltInBrain(size))
       setBrainUpload(null)
     } catch (error) {
       const reason = error instanceof Error ? error.message : 'It could not be loaded.'
-      setImportError(`Couldn't load the built-in brain. ${reason} Your current model is unchanged.`)
+      showImportError(`Couldn't load the built-in brain. ${reason} Your current model is unchanged.`)
     } finally {
       setLoading(false)
     }
@@ -474,7 +480,7 @@ export function App() {
   const importBrainStl = async (upload: { buffer: ArrayBuffer; name: string }, size: FoldSize, smoothing: Smoothing) => {
     stopPlayback()
     setLoading(true)
-    setImportError('')
+    showImportError('')
     try {
       const triangles = stlTriangleCount(upload.buffer)
       if (triangles > MAX_TRIANGLES) {
@@ -488,11 +494,55 @@ export function App() {
       setRebuildMessage({ source, text: rebuildNote(check, size, smoothing) })
     } catch (error) {
       const reason = error instanceof OpenShapeError || error instanceof Error ? error.message : 'It could not be prepared.'
-      setImportError(`Couldn't use ${upload.name}. ${reason} Your current model is unchanged.`)
+      showImportError(`Couldn't use ${upload.name}. ${reason} Your current model is unchanged.`, error instanceof OpenShapeError ? upload : null)
     } finally {
       setLoading(false)
     }
   }
+  // Brain mode can't fill an open surface, so this opens the same STL in sheet mode with the Brain folds preset instead:
+  // it grows brain-like folds over the open sheet and keeps its opening. Settings start from sheet mode's defaults.
+  const openInSheetWithBrainFolds = (upload: { buffer: ArrayBuffer; name: string }) => guard(`Open ${upload.name} in sheet mode?`, 'Discard and open', () => {
+    stopPlayback()
+    setLoading(true)
+    try {
+      const source = readGrowthStl(upload.buffer, upload.name)
+      // A flat bottom doesn't grow, so the print still stands on it (brush Paint to grow there anyway).
+      let bottom = false
+      const fresh = freshSurface(source, null, DISK_DEFAULTS, surface => {
+        const erase = flatBottomErase(surface.rest, surface.indices)
+        if (erase) { surface.paint.erase.set(erase); bottom = true }
+      })
+      const built = PRESETS.find(preset => preset.id === 'brain')!.build(fresh.openRims.length)
+      // Holding the parts that don't grow keeps the erased bottom where it is while the walls fold.
+      const settings = { ...DISK_DEFAULTS, ...built.mechanics, holdStill: bottom ? 1 : 0 }
+      fresh.setMechanics(settings)
+      fresh.setLayers(built.layers)
+      setBrainUpload(null)
+      setMode('sheet')
+      setInput(source)
+      setMechanics(settings)
+      adopt(fresh)
+      setSelectedLayerId(built.layers[0]?.id ?? null)
+      setPhases(built.phases ?? [])
+      setStopAt(built.stopAt ?? STOP_DEFAULTS)
+      setThickness(THICKNESS_DEFAULTS)
+      setCenterExport(false)
+      setView(fresh.indices.length / 3 > SLOW_TRIANGLES ? 'smooth' : 'cells')
+      setTool('orbit')
+      setOverlay('field')
+      setSavedPoint({ step: 0, edits })
+      showImportError('')
+      setExportStatus('')
+      setProjectError('')
+      setProjectStatus('')
+      setNotice(`Opened ${upload.name} in sheet mode with Brain folds.${bottom ? ' Its flat bottom and the lowest fifth of the wall don\'t grow and are held still, so it keeps standing flat on the bed.' : ''} Press Play growth.`)
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'It could not be prepared.'
+      showImportError(`Couldn't open ${upload.name}. ${reason} Your current model is unchanged.`)
+    } finally {
+      setLoading(false)
+    }
+  })
   const switchMode = (next: 'sheet' | 'brain') => {
     if (next === mode) return
     if (next === 'brain') guard('Switch to brain mode?', 'Discard and switch', () => void loadBrain(brainFold))
@@ -607,7 +657,7 @@ export function App() {
       setThickness(project.thickness)
       setPrintAngle(project.printAngle ?? PRINT_ANGLE_DEFAULT)
       setTool('orbit')
-      setImportError('')
+      showImportError('')
       setExportStatus('')
       setNotice('')
       setSavedPoint({ step: restored.clock, edits })
@@ -897,6 +947,10 @@ export function App() {
           <button disabled={loading || !input} data-tip={input ? 'Go back to the flat default disk.' : 'You are already using the default disk.'} onClick={() => guard('Switch to the default disk?', 'Discard and switch', switchToDefaultDisk)}>Default disk</button>
         </div>}
         {importError && <p className="hint" role="alert">{importError}</p>}
+        {importError && openUpload && <div className="button-row">
+          <button type="button" disabled={loading} onClick={() => openInSheetWithBrainFolds(openUpload)}
+            data-tip="Switch to sheet mode, open this STL as an open surface, and apply the Brain folds preset: the whole surface grows into brain-like folds, and the opening stays open.">Open in Sheet mode with Brain folds</button>
+        </div>}
         {rebuildMessage?.source === input && rebuildMessage.text && <div className="overlap-warning rebuild-note" role="status"><p>{rebuildMessage.text}</p></div>}
         {/* About dense uploads; a brain's triangles come from growth, which this advice can't reduce. */}
         {!input?.brain && disk.indices.length / 3 > SLOW_TRIANGLES && <div className="overlap-warning" role="status">
@@ -967,6 +1021,10 @@ export function App() {
             title="Aims the pull away from straight down." onChange={value => change('gravityTilt', value)} />
           <Slider label="Heading" value={mechanics.gravityHeading} display={`${mechanics.gravityHeading}°`} min={0} max={359} step={1}
             title="Rotates a tilted pull around the vertical axis." onChange={value => change('gravityHeading', value)} />
+          <label data-tip={mechanics.gravity > 0 ? 'Gravity already holds the parts that don\'t grow in place.'
+            : 'Hold the parts that don\'t grow exactly where they are, so an erased flat bottom stays on the bed while the rest folds.'}>
+            <span>Hold parts that don't grow <input type="checkbox" checked={mechanics.gravity > 0 || mechanics.holdStill > 0} disabled={mechanics.gravity > 0}
+              onChange={event => change('holdStill', event.currentTarget.checked ? 1 : 0)} /></span></label>
         </details></section>
 
         <section><details><summary data-tip="How growing folds push apart when they touch, so the surface never passes through itself.">Contact in growth field</summary>
