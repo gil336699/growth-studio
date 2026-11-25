@@ -1,5 +1,12 @@
 # Growth Studio Changelog
 
+## 0.18.1 2026-11-25
+
+- **The page stays responsive while the print solid is made.** The print solid, with its smoothing, its rounds and the checks each round makes, and its wall or flat base, is now made in a background worker, so the 3D view, orbiting and the other controls keep working meanwhile. Before, it was made on the page when growth paused. In Chrome, on a finely meshed vase base, 60 mm across and 98,000 triangles, with Light smoothing, a 1.2 mm wall and a 2 mm round on its bottom loop, each change to the round froze the page for about 1.8 s. A click on a tab or another control during it made the print start over, about 3.5 s in all, and ten quick steps of the Radius slider, 60 ms apart, froze it twice, 3.4 s in all. Now the page pauses only to draw the new print, for under 0.1 s, and a click is answered at once. The round shows about 2.0 s after a change, 0.2 s later than 0.18.0 showed it when nothing else was touched, since a print waits 0.1 s for further changes before it starts. After ten quick steps it shows 2.6 s after the first. The print is the same, bit for bit, and so is the STL Export writes.
+- **Until a new print is ready, the app says so.** While you change its settings, the 3D view keeps the last print, and the Edges cards and the status line under the solid read **Updating the print…**. Export is unavailable until the print is ready, and its tooltip and the line under it say so. A change while a print is being made stops it and starts the new one, so ten quick steps of a slider make one print. Turning Add thickness off and on again shows the last print at once.
+- Where a browser can't start the worker, the page makes the print itself and waits for it, as before.
+- On a closed shape, Export OBJ's tooltip now says it saves the print solid, as Export STL's does.
+
 ## 0.18.0 2026-11-24
 
 - **Edges tool: keep a designed edge sharp, or round it in mm.** The new **Edges** tool (D) above the 3D view shows an uploaded STL's design borders. Those are its sharp edges, and places where a flat face meets a curve, such as where a fillet starts. Click one to choose its whole loop, up to a corner; Shift-click adds a loop, and Option-click removes one. On a touch screen, a tap adds a loop and a second tap removes it. The print card lists the loops, each **Keep sharp** or **Round**, with a radius from 0.5 to 10 mm.

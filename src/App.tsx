@@ -23,7 +23,7 @@ import { exportBinaryStl, exportObj } from './lib/meshExport'
 import { PRESETS } from './lib/presets'
 import { rangeFill } from './lib/rangeFill'
 import { saveFile, type SaveResult } from './lib/saveFile'
-import { facingSign, printScale, RIM_ROUNDNESS, WALL_SHIFT, type RimProfile, type Solid, type WallSide } from './lib/thicken'
+import { printScale, type RimProfile, type Solid, type WallSide } from './lib/thicken'
 import { SHARP_ANGLE_RANGE, sharpEdges, SMOOTH_MAX_TRIANGLES, smoothPassesFor, ungrownEdges, type SmoothLevel } from './lib/smoothSheet'
 import { createGrowingDisk, DISK_DEFAULTS, diskGravityDirection, NO_LIMIT_VERTICES, type BrushMode, type DiskSnapshot, type StrokePoint } from './physics/growingDisk'
 import type { GrowthLayer, Vec3 } from './physics/growthLayers'
@@ -33,12 +33,12 @@ import {
   boundingRadius, BRAIN_CONTINUE, BRAIN_CREDIT, BRAIN_RADIUS, BRAIN_START_EDGE, BRAIN_STOP, brainErase, brainLayers, brainMechanics, FOLD_ORDER, FOLD_SIZES,
   flatBottomErase, foldLength, foldMechanics, foldSizeOf, loadBuiltInBrain, MAX_BUDGET_SCALE, type FoldSize,
 } from './lib/brain'
-import { closedSolid } from './lib/closedSolid'
 import { findBorders } from './lib/borders'
-import { choiceEdges, finalStatus, pickLoop, printEdges, ROUND_DEFAULT, ROUND_RANGE, sameLoop, smallestRound, type EdgeChoice, type EdgeStatus } from './lib/edgeChoices'
-import { printSheet, sheetSolid } from './lib/sheetSolid'
+import { choiceEdges, finalStatus, pickLoop, ROUND_DEFAULT, ROUND_RANGE, sameLoop, smallestRound, type EdgeChoice, type EdgeStatus } from './lib/edgeChoices'
+import { ROUND_MIN_WALL, type PrintRequest } from './lib/printSolid'
 import { readUpload } from './lib/upload'
 import { usePrintCheck } from './lib/usePrintCheck'
+import { usePrintSolid } from './lib/usePrintSolid'
 import { PRINT_ANGLE_DEFAULT } from './lib/printCheck'
 
 type Mechanics = typeof DISK_DEFAULTS
@@ -86,11 +86,6 @@ const creasesOf = (referencePositions: Float32Array, indices: Uint32Array, angle
 }
 // The edges that stay sharp when smoothing: sharp in the starting shape, and not grown since (lib/smoothSheet).
 const keptCreases = (disk: DiskSession, angle: number) => ungrownEdges(creasesOf(disk.referencePositions, disk.indices, angle), disk.localGrowth)
-// How far a round's facets may stray from a true circle, in mm: well under what a printer can show.
-const ROUND_TOLERANCE = 0.005
-// The thinnest wall a round on a closed shape may leave, in mm, unless the shape's own walls are thinner: two lines of a
-// 0.4 mm nozzle, the least the Wall thickness tooltip advises for filament printers.
-const ROUND_MIN_WALL = 0.8
 // A shape's radius for Fold size: the built-in brain is the reference the lengths are set for, so its three meshes, which
 // measure a little differently (1.173 to 1.182), all use its exact lengths; any other shape is measured.
 const sourceRadius = (source: GrowthStlSource | null) => source?.brain ? BRAIN_RADIUS : source ? boundingRadius(source.positions) : 1
@@ -221,49 +216,6 @@ export function App() {
   // bottom if asked (lib/closedSolid). Nothing is rebuilt or merged, so thin walls and designed edges stay.
   const closedShape = !canThicken && Boolean(input)
   const closedOn = thickness.on && closedShape
-  // Outside and Inside follow the way the starting surface faces: away from the middle of an STL, or up from the disk.
-  // An STL keeps its own millimeters. The default disk is scaled so the solid itself, wall and rims included, has the
-  // chosen longest side; scaling the sheet alone made a 100 mm disk with a 5 mm wall export 105 mm long.
-  // Smooth first smooths the sheet (Loop subdivision, see lib/smoothSheet), and the wall follows the smoothed surface.
-  // Edges that bend more than sharpAngle in the starting shape, such as the edge around a flat bottom, stay sharp unless
-  // bevel rounds them.
-  // Loops chosen with the Edges tool are kept fully sharp while smoothing, and rounded after it, before the wall
-  // (lib/sheetSolid).
-  const makeSolid = (wallMm: number, rim: RimProfile, side: WallSide, size: number, smooth: SmoothLevel, bevel: number, sharpAngle: number, choices: EdgeChoice[]) => {
-    const shift = side === 'both' ? 0 : WALL_SHIFT[side] * facingSign(disk.referencePositions, disk.indices, input ? 'outward' : 'up')
-    const passes = smoothPassesFor(smooth, disk.indices.length / 3)
-    const creases = passes && bevel < 1 ? keptCreases(disk, sharpAngle) : undefined
-    const plan = input && choices.length ? printEdges(choices, disk.referencePositions, disk.indices, disk.localGrowth, input.scale) : null
-    const sheet = printSheet(disk.positions, disk.indices, { passes, creases, bevel, keep: plan?.keep, rounds: plan?.rounds })
-    const build = (scale: number) => sheetSolid(sheet, { wall: wallMm / scale, roundness: RIM_ROUNDNESS[rim], shift, tolerance: ROUND_TOLERANCE / scale, sharpAngle })
-    if (input) { const solid = build(input.scale); return { solid, mmPerUnit: input.scale, plan, skipped: solid.skipped } }
-    // The default disk is scaled so the solid itself has the chosen longest side; it has no Edges choices.
-    let mmPerUnit = printScale(disk.positions, null, size), solid = build(mmPerUnit)
-    for (let pass = 0; pass < 2; pass++) { mmPerUnit = printScale(solid.positions, null, size); solid = build(mmPerUnit) }
-    return { solid, mmPerUnit, plan, skipped: solid.skipped }
-  }
-  // Deferred, so dragging the wall slider stays smooth on a dense mesh.
-  const wall = useDeferredValue(thickness.wall), rimProfile = useDeferredValue(thickness.rim)
-  const wallSide = useDeferredValue(thickness.side), printSize = useDeferredValue(thickness.size), smoothLevel = useDeferredValue(thickness.smooth)
-  const bevelAmount = useDeferredValue(thickness.bevel), sharpAngle = useDeferredValue(thickness.sharpAngle), choices = useDeferredValue(edgeChoices)
-  const sheetPrint = useMemo(() => solidOn && !active ? makeSolid(wall, rimProfile, wallSide, printSize, smoothLevel, bevelAmount, sharpAngle, choices) : null,
-  // Positions change in place; the geometry revision tracks them.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  [solidOn, active, disk, disk.indices, disk.geometryRevision, wall, rimProfile, wallSide, printSize, smoothLevel, bevelAmount, sharpAngle, input, choices])
-  // Whether the print shown has caught up with the settings, so export can write it as it is.
-  const sheetSettled = wall === thickness.wall && rimProfile === thickness.rim && wallSide === thickness.side && printSize === thickness.size
-    && smoothLevel === thickness.smooth && bevelAmount === thickness.bevel && sharpAngle === thickness.sharpAngle && choices === edgeChoices
-  const solid = sheetPrint?.solid ?? null
-  // How many mesh edges of the starting shape are sharp enough to keep, for the Bevel control: counted while growth is
-  // paused (the mesh splits often while it grows), and unknown meanwhile. How many smoothing passes really run.
-  const sharpCount = useMemo(() => (solidOn || closedOn) && !active ? keptCreases(disk, sharpAngle).length / 2 : null,
-  // Growth so far changes in place; the geometry revision tracks it.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  [solidOn, closedOn, active, disk, disk.indices, disk.geometryRevision, sharpAngle])
-  const smoothPasses = smoothPassesFor(thickness.smooth, disk.indices.length / 3)
-  // Whether the solid is closed and where its wall crosses itself, found in a worker since a dense mesh takes seconds.
-  type SolidCheck = { leaks: number; pairs: number; capped: boolean; vertices: number[]; failed?: boolean }
-  const [solidCheck, setSolidCheck] = useState<SolidCheck & { solid: Solid } | null>(null)
   // The flat base's range follows the starting shape's height: up to a quarter of it, and 5 mm unless that's too much.
   const startHeight = useMemo(() => {
     if (!input) return 0
@@ -273,22 +225,43 @@ export function App() {
   }, [input])
   const baseRange: [number, number] = [0.5, Math.max(1, Math.round(0.25 * startHeight * 2) / 2)]
   const baseCut = Math.min(baseRange[1], Math.max(baseRange[0], thickness.baseCut))
-  const flatBase = useDeferredValue(thickness.flatBase), deferredCut = useDeferredValue(baseCut)
-  const makeClosed = (smooth: SmoothLevel, bevel: number, angle: number, flat: boolean, cutMm: number, choices: EdgeChoice[]) => {
-    const passes = smoothPassesFor(smooth, disk.indices.length / 3)
-    const creases = passes && bevel < 1 ? keptCreases(disk, angle) : undefined
-    const plan = input && choices.length ? printEdges(choices, disk.referencePositions, disk.indices, disk.localGrowth, input.scale) : null
-    const solid = closedSolid(disk.positions, disk.indices, { passes, creases, bevel, keep: plan?.keep, rounds: plan?.rounds,
-      tolerance: input ? ROUND_TOLERANCE / input.scale : undefined, sharpAngle: angle, minWall: input ? ROUND_MIN_WALL / input.scale : undefined,
-      cut: flat && input ? cutMm / input.scale : 0 })
-    return { solid, plan, skipped: solid.skipped }
-  }
-  const closedResult = useMemo(() => closedOn && !active ? makeClosed(smoothLevel, bevelAmount, sharpAngle, flatBase, deferredCut, choices) : null,
+  // The print solid is made while growth is paused, in a worker, so the page stays responsive while smoothing, rounds and
+  // their checks take seconds on a dense mesh (lib/usePrintSolid): a sheet smoothed and given a wall, or a closed shape
+  // smoothed and cut flat, with the Edges tool's loops kept sharp or rounded (lib/printSolid). The last print stays up
+  // until the next is ready. The surface changes in place as it grows, so it's copied into the request when the build
+  // starts, which is only while growth is paused.
+  const printMesh = useMemo(() => ({ positions: disk.positions, indices: disk.indices, referencePositions: disk.referencePositions, localGrowth: disk.localGrowth }),
   // Positions change in place; the geometry revision tracks them.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  [closedOn, active, disk, disk.indices, disk.geometryRevision, smoothLevel, bevelAmount, sharpAngle, flatBase, deferredCut, input, choices])
-  const closedSettled = smoothLevel === thickness.smooth && bevelAmount === thickness.bevel && sharpAngle === thickness.sharpAngle
-    && flatBase === thickness.flatBase && deferredCut === baseCut && choices === edgeChoices
+  [disk, disk.indices, disk.geometryRevision])
+  const stlScale = input ? input.scale : null
+  const printRequest = useMemo((): PrintRequest | null => active ? null
+    : solidOn ? { kind: 'sheet', mesh: printMesh, scale: stlScale, settings: { wall: thickness.wall, rim: thickness.rim, side: thickness.side,
+      size: thickness.size, smooth: thickness.smooth, bevel: thickness.bevel, sharpAngle: thickness.sharpAngle, choices: edgeChoices } }
+      : closedOn ? { kind: 'closed', mesh: printMesh, scale: stlScale, settings: { smooth: thickness.smooth, bevel: thickness.bevel,
+        sharpAngle: thickness.sharpAngle, flatBase: thickness.flatBase, cut: baseCut, choices: edgeChoices } }
+        : null,
+  [active, solidOn, closedOn, printMesh, stlScale, thickness.wall, thickness.rim, thickness.side, thickness.size, thickness.smooth, thickness.bevel,
+    thickness.sharpAngle, thickness.flatBase, baseCut, edgeChoices])
+  const { print, settled: printSettled, error: printError } = usePrintSolid(printRequest)
+  // While a print is being made for new settings, the one shown is for the last ones: Export waits for the new one.
+  const printPending = Boolean(printRequest) && !printSettled
+  const printFailed = printError ? `The print couldn't be made (${printError.replace(/\.$/, '')}). Try other settings, or reload the page.` : ''
+  const sheetPrint = print && 'mmPerUnit' in print ? print : null
+  const closedResult = print && !('mmPerUnit' in print) ? print : null
+  const solid = sheetPrint?.solid ?? null
+  // How many mesh edges of the starting shape are sharp enough to keep, for the Bevel control: counted while growth is
+  // paused (the mesh splits often while it grows), and unknown meanwhile. Deferred, so dragging Sharp edge angle stays
+  // smooth on a dense mesh. How many smoothing passes really run.
+  const sharpAngle = useDeferredValue(thickness.sharpAngle)
+  const sharpCount = useMemo(() => (solidOn || closedOn) && !active ? keptCreases(disk, sharpAngle).length / 2 : null,
+  // Growth so far changes in place; the geometry revision tracks it.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [solidOn, closedOn, active, disk, disk.indices, disk.geometryRevision, sharpAngle])
+  const smoothPasses = smoothPassesFor(thickness.smooth, disk.indices.length / 3)
+  // Whether the solid is closed and where its wall crosses itself, found in a worker since a dense mesh takes seconds.
+  type SolidCheck = { leaks: number; pairs: number; capped: boolean; vertices: number[]; failed?: boolean }
+  const [solidCheck, setSolidCheck] = useState<SolidCheck & { solid: Solid } | null>(null)
   const closedPrint = closedResult?.solid ?? null
   const printSolid = solid ?? closedPrint
   // What became of each loop chosen with the Edges tool on the print, once it's made.
@@ -332,7 +305,8 @@ export function App() {
   const edgeText = (choice: EdgeChoice) => {
     const status = edgeStatus?.get(choice.id)
     if (active) return choice.action === 'round' ? 'Rounded on the print, shown when growth pauses.' : 'Kept sharp on the print, shown when growth pauses.'
-    if (!status || choices !== edgeChoices) return 'Updating the print…'
+    if (printFailed) return printFailed
+    if (!status || printPending) return 'Updating the print…'
     if (status === 'kept') return 'Kept sharp.'
     if (status === 'rounded') return `Rounded with a ${choice.radius.toFixed(1)} mm radius.`
     if (status === 'grown') return 'Left as it grew: this part has grown, so its edges folded with it and are smoothed like the rest.'
@@ -362,19 +336,29 @@ export function App() {
   useEffect(() => {
     if (!printSolid) return
     const target = printSolid
-    const worker = new Worker(new URL('./lib/solidCheck.worker.ts', import.meta.url), { type: 'module' })
-    worker.onmessage = ({ data }: MessageEvent<SolidCheck>) => {
-      setSolidCheck({ solid: target, ...data })
-      worker.terminate()
-    }
-    worker.onerror = event => {
-      event.preventDefault()
-      setSolidCheck({ solid: target, leaks: 0, pairs: 0, capped: false, vertices: [], failed: true })
-      worker.terminate()
-    }
-    // A sheet's rounds count their own points, so folds inside a round are seen (lib/sheetSolid).
-    const timer = window.setTimeout(() => worker.postMessage({ positions: target.positions, indices: target.indices, origin: target.groups ?? target.origin, limit: CROSSING_LIMIT }), 200)
-    return () => { window.clearTimeout(timer); worker.terminate() }
+    let worker: Worker | null = null
+    const failed = () => setSolidCheck({ solid: target, leaks: 0, pairs: 0, capped: false, vertices: [], failed: true })
+    const timer = window.setTimeout(() => {
+      // A page that may not start workers, as in some sandboxed frames, gets the print made on the page and says the
+      // check couldn't run.
+      try {
+        const own = worker = new Worker(new URL('./lib/solidCheck.worker.ts', import.meta.url), { type: 'module' })
+        own.onmessage = ({ data }: MessageEvent<SolidCheck>) => {
+          setSolidCheck({ solid: target, ...data })
+          own.terminate()
+        }
+        own.onerror = event => {
+          event.preventDefault()
+          failed()
+          own.terminate()
+        }
+        // A sheet's rounds count their own points, so folds inside a round are seen (lib/sheetSolid).
+        own.postMessage({ positions: target.positions, indices: target.indices, origin: target.groups ?? target.origin, limit: CROSSING_LIMIT })
+      } catch {
+        failed()
+      }
+    }, 200)
+    return () => { window.clearTimeout(timer); worker?.terminate() }
   }, [printSolid])
   const crossings = solidCheck?.solid === printSolid ? solidCheck : null
   // A change to the solid makes the last export's message out of date.
@@ -611,12 +595,15 @@ export function App() {
   const describe = (result: SaveResult, filename: string) => result === 'saved' ? `Saved ${filename}.`
     : result === 'downloaded' ? `Download requested for ${filename}. If no file appears, open Growth Studio in Chrome or Safari.`
       : result === 'cancelled' ? 'Save cancelled.' : `Could not save ${filename}.`
+  // Why Export can't write a file now, if it can't. A print is written as it's shown, once it has caught up with the
+  // settings.
+  const exportBlocked = active ? 'Stop the simulation to export.'
+    : !solidOn && !closedOn ? ''
+      : printError ? "The print couldn't be made, so there is nothing to export."
+        : printPending || !printSolid ? 'Wait until the print is updated.' : ''
   const exportMesh = async (format: 'obj' | 'stl') => {
-    // The print shown, once it has caught up with the settings; made afresh otherwise, as while growth runs.
-    const made = !solidOn ? null : sheetPrint && sheetSettled ? sheetPrint
-      : makeSolid(thickness.wall, thickness.rim, thickness.side, thickness.size, thickness.smooth, thickness.bevel, thickness.sharpAngle, edgeChoices)
-    const layer = !closedOn ? null : closedPrint && closedSettled ? closedPrint
-      : makeClosed(thickness.smooth, thickness.bevel, thickness.sharpAngle, thickness.flatBase, baseCut, edgeChoices).solid
+    if (exportBlocked) return
+    const made = solidOn ? sheetPrint : null, layer = closedOn ? closedPrint : null
     const surface = made?.solid.positions ?? layer?.positions ?? disk.positions, indices = made?.solid.indices ?? layer?.indices ?? disk.indices
     // A solid is written in millimeters: the STL's own, or the default disk at its chosen size.
     const positions = input ? growthExportPositions(surface, input, centerExport) : made ? surface.map(value => value * made.mmPerUnit) : surface
@@ -1279,6 +1266,8 @@ export function App() {
             <label data-tip="Show the solid in the 3D view while growth is paused. Growth itself always uses the thin sheet."><span>Show in 3D view <input type="checkbox" checked={thickness.show}
               onChange={event => { const show = event.currentTarget.checked; setThickness(current => ({ ...current, show })) }} /></span></label>
             <p className="hint" role="status">{active ? 'The wall is checked when growth pauses.'
+              : printFailed ? printFailed
+              : printPending || !solid ? 'Updating the print…'
               : !crossings ? 'Checking the wall…'
                 : crossings.failed ? "The wall couldn't be checked in this browser. The solid still exports."
                 : crossings.leaks ? `The solid isn't closed along ${crossings.leaks.toLocaleString()} ${crossings.leaks === 1 ? 'edge' : 'edges'}, where the surface pinches to a point or its faces are turned inconsistently. Repair the STL in your CAD tool before printing.`
@@ -1296,6 +1285,8 @@ export function App() {
             <label data-tip="Show the print solid in the 3D view while growth is paused. Growth itself always uses the grown surface."><span>Show in 3D view <input type="checkbox" checked={thickness.show}
               onChange={event => { const show = event.currentTarget.checked; setThickness(current => ({ ...current, show })) }} /></span></label>
             <p className="hint" role="status">{active ? 'The solid is checked when growth pauses.'
+              : printFailed ? printFailed
+              : printPending || !closedPrint ? 'Updating the print…'
               : !crossings ? 'Checking the solid…'
                 : crossings.failed ? "The solid couldn't be checked in this browser. It still exports."
                 : crossings.leaks ? `The solid isn't closed along ${crossings.leaks.toLocaleString()} ${crossings.leaks === 1 ? 'edge' : 'edges'}, where the surface pinches to a point. Repair the STL in your CAD tool before printing.`
@@ -1307,12 +1298,13 @@ export function App() {
                     ? thickness.bevel <= 0 ? ', sharp edges kept' : thickness.bevel >= 1 ? ', sharp edges rounded' : `, sharp edges beveled ${percent(thickness.bevel)}` : ''}${roundedText}${thickness.flatBase ? `. The bottom ${baseCut.toFixed(1)} mm is cut flat` : ''}.`}</p>
           </>}
           <div className="button-row">
-            <button disabled={active} data-tip={active ? 'Stop the simulation to export.' : solidOn ? 'Save the solid as an OBJ mesh, in millimeters.' : 'Save the current surface as an OBJ mesh.'} onClick={() => void exportMesh('obj')}>Export OBJ</button>
-            <button disabled={active} data-tip={active ? 'Stop the simulation to export.' : solidOn || closedOn ? 'Save the solid as a binary STL for slicing, in millimeters.'
-              : canThicken ? 'Save the current surface as a binary STL for CAD or slicing. It is an open sheet, so add thickness before printing.' : 'Save the current surface as a binary STL for CAD or slicing.'}
+            <button disabled={Boolean(exportBlocked)} data-tip={exportBlocked || (solidOn || closedOn ? 'Save the solid as an OBJ mesh, in millimeters.' : 'Save the current surface as an OBJ mesh.')}
+              onClick={() => void exportMesh('obj')}>Export OBJ</button>
+            <button disabled={Boolean(exportBlocked)} data-tip={exportBlocked || (solidOn || closedOn ? 'Save the solid as a binary STL for slicing, in millimeters.'
+              : canThicken ? 'Save the current surface as a binary STL for CAD or slicing. It is an open sheet, so add thickness before printing.' : 'Save the current surface as a binary STL for CAD or slicing.')}
               onClick={() => void exportMesh('stl')}>Export STL</button>
           </div>
-          <p className="hint" role="status">{exportStatus || (solidOn ? 'Exports the solid.' : canThicken ? 'The surface is an open sheet. Add thickness to print it.'
+          <p className="hint" role="status">{exportStatus || (exportBlocked && !active ? exportBlocked : solidOn ? 'Exports the solid.' : canThicken ? 'The surface is an open sheet. Add thickness to print it.'
             : closedOn ? 'Exports the print solid.' : 'The surface is closed, a solid already. Turn on Print solid to smooth it or cut a flat base.')}</p>
         </section>
       </TabPanel>
