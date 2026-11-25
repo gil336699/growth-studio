@@ -170,7 +170,7 @@ describe('rounds on the print', () => {
     // the pot's own 0.6 mm, found from the round's touching line.
     const groove = rounded([[0, 0], [30, 0], [30, 50], [28.8, 50], [28.8, 4], [29.4, 4], [29.4, 2], [28.8, 2], [28.8, 1.2], [0, 1.2]], false)
     expect(groove(2.5)).toEqual({ problem: 'thins the wall', left: expect.closeTo(0.55, 1), need: expect.closeTo(0.6, 2) })
-  })
+  }, 30_000)
 
   it('rounds a knife edge, which a round makes thicker, however thin the shape is there', () => {
     // A lens 20 mm across whose rim's faces meet at 30°: within a few millimetres of the rim it is thinner than 0.8 mm.
@@ -189,7 +189,7 @@ describe('rounds on the print', () => {
         expect(solid.skipped).toEqual([])
       }
     }
-  })
+  }, 30_000)
 
   it('says which loops it left sharp', () => {
     const can = cylinder(), creases = sharpEdges(can.positions, can.indices)

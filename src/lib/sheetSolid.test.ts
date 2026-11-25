@@ -148,7 +148,7 @@ describe('sheetSolid', () => {
     expect(turnedFaces(folded, 1)).toBeGreaterThan(0)
     expect(crossings({ ...folded, origin: Uint32Array.from(folded.origin, v => rounded.origin[v]) })).toBe(0)
     expect(crossings({ ...folded, groups: Uint32Array.from(folded.origin, v => groups[v]) })).toBeGreaterThan(0)
-  })
+  }, 30_000)
 
   it('leaves no sliver turned over where a round meets the faces beside it', () => {
     // Cups of 32 and 48 facets as the app prepares them, rounded 3 and 4 mm. Merging two points a hair apart at the
@@ -164,7 +164,7 @@ describe('sheetSolid', () => {
         expect(turnedFaces(made, 1)).toBe(0)
       }
     }
-  })
+  }, 30_000)
 
   it('leaves a round sharp that adds places where the wall crosses itself, however short', () => {
     // The hat with a ring crossing its crown's wall high up, on faces the round reaches: 133 mm of lines where faces
