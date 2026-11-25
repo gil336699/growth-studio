@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createGrowingDisk } from '../physics/growingDisk'
-import { facingSign, printScale, RIM_ROUNDNESS, rimProfile, solidCrossings, solidLeaks, thicken, type RimProfile } from './thicken'
+import { facesCross, rayDepths, facingSign, printScale, RIM_ROUNDNESS, rimProfile, solidCrossings, solidLeaks, thicken, zoneCrossings, type RimProfile } from './thicken'
 
 // Every edge used by exactly two faces, once in each direction: closed, with faces turned consistently.
 function openEdges(indices: Uint32Array) {
@@ -232,3 +232,59 @@ it('does not count the overlap at a crumpled point, but still finds walls too th
   const thick = thicken(disk.positions, disk.indices, 0.6, 1)
   expect(solidCrossings(thick.positions, thick.indices, Infinity, thick.origin).pairs).toBeGreaterThan(0)
 }, 60000)
+
+it('counts faces that pass through each other or meet along a line, not faces that only touch at a point', () => {
+  // A face lying flat, and a face hinged on a line that runs through one of the first face's corners, past the end of
+  // the hinge: the corner touches the hinged face's plane but not the face. Points from a round on a CAD part, where the
+  // tree's test, with its fixed tolerance, said they cross.
+  const touching = [[0.9653885364532471, -0.06798510998487473, -0.06118660047650337], [0.9653885364532471, -0.06798510998487473, -0.08158212900161743],
+    [0.9757996201515198, -0.0575740672647953, -0.08158212900161743], [0.9757996201515198, -0.0575740672647953, -0.07887554913759232],
+    [0.977152407169342, -0.05592571198940277, -0.0791926458477974], [0.9757996201515198, -0.0575740672647953, -0.07680315524339676]].flat()
+  expect(solidCrossings(Float32Array.from(touching), Uint32Array.from([0, 1, 2, 3, 4, 5])).pairs).toBe(0)
+  // Two faces that pass through each other, and two that meet along a line, with points of their own.
+  const crossing = [0, 0, 0, 2, 0, 0, 1, 2, 0, 1, 1, -1, 1, 1, 1, 1.2, -1, 0]
+  expect(solidCrossings(Float32Array.from(crossing), Uint32Array.from([0, 1, 2, 3, 4, 5])).pairs).toBe(1)
+  const meeting = [0, 0, 0, 2, 0, 0, 1, 2, 0, 0.5, 0, 0, 1.5, 0, 0, 1, 0, 1]
+  expect(solidCrossings(Float32Array.from(meeting), Uint32Array.from([0, 1, 2, 3, 4, 5])).pairs).toBe(1)
+})
+
+it('counts faces lying on each other, even when rounding tilts one, but not faces in one plane that only touch', () => {
+  // Two long chamfer faces of a smoothed tag, from bodies exported together: they lie on each other, their planes
+  // 1.3e-7 rad apart, and cross along 0.026 mm.
+  const stacked = [[-0.06750950217247009, -0.4582092761993408, 0.05498511344194412], [0.7005469799041748, -0.439880907535553, 0.07331348210573196],
+    [-0.06750950217247009, -0.4352988004684448, 0.07789557427167892], [-0.0688055157661438, -0.4582092761993408, 0.05498511344194412],
+    [0.6979549527168274, -0.43896448612213135, 0.074229896068573], [0.6979549527168274, -0.4582092761993408, 0.05498511344194412]].flat()
+  expect(facesCross(Float32Array.from(stacked), [0, 1, 2], [3, 4, 5])).toBe(true)
+  // Faces in one plane: one inside the other, and two that meet along part of an edge, one on each side of it.
+  const flat = Float32Array.from([0, 0, 0, 10, 0, 0, 0, 10, 0, 1, 1, 0, 5, 1, 0, 1, 5, 0, 2, 0, 0, 5, -5, 0, 8, 0, 0])
+  expect(facesCross(flat, [0, 1, 2], [3, 4, 5])).toBe(true)
+  expect(facesCross(flat, [0, 1, 2], [6, 7, 8])).toBe(false)
+})
+
+it('finds the faces that pass through a zone of faces, and leaves faces that touch it or that skip turns down', () => {
+  // Face 0 lies flat; face 1 passes through it; face 2 shares a corner with it; face 3 is far away.
+  const positions = Float32Array.from([0, 0, 0, 2, 0, 0, 1, 2, 0, 1, 1, -1, 1, 1, 1, 1.2, -1, 0, 2, 0, 0, 3, 0, 0, 2, 0, 1, 9, 9, 9, 10, 9, 9, 9, 10, 9])
+  const indices = Uint32Array.from([0, 1, 2, 3, 4, 5, 1, 7, 8, 9, 10, 11])
+  // With the length of the line where they cross: face 1 passes through face 0 along about a millimetre.
+  const [pair] = zoneCrossings(positions, indices, [0])
+  expect(pair.slice(0, 2)).toEqual([0, 1])
+  expect(pair[2]).toBeGreaterThan(0.9)
+  expect(zoneCrossings(positions, indices, [0])).toHaveLength(1)
+  expect(zoneCrossings(positions, indices, [0], (zone, other) => other === 1)).toEqual([])
+  expect(zoneCrossings(positions, indices, [3])).toEqual([])
+  expect(facesCross(positions, [0, 1, 2], [3, 4, 5])).toBe(true)
+  expect(facesCross(positions, [0, 1, 2], [9, 10, 11])).toBe(false)
+})
+
+it('measures how far a ray travels through a solid before it leaves it', () => {
+  // A closed 10 mm cube. A ray from inside, up, leaves through the top; one that starts a hair below the bottom, outside,
+  // passes the face it enters and leaves through the top too; one that leaves sooner than far stops there.
+  const P = Float32Array.from([0, 0, 0, 10, 0, 0, 10, 10, 0, 0, 10, 0, 0, 0, 10, 10, 0, 10, 10, 10, 10, 0, 10, 10])
+  const I = Uint32Array.from([0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4, 1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7])
+  const depths = rayDepths(P, I, [5, 5, 2, 5, 5, -1e-4, 5, 5, 2], [0, 0, 1, 0, 0, 1, 0, 0, -1], [-1, -1, -1], 20)
+  expect(depths[0]).toBeCloseTo(8, 6)
+  expect(depths[1]).toBeCloseTo(10, 3)
+  expect(depths[2]).toBeCloseTo(2, 6)
+  // Faces a ray is told to skip, as the edge's own wedge under a round, don't stop it.
+  expect(rayDepths(P, I, [5, 5, 2], [0, 0, 1], [-1], 20, (ray, face) => face === 2 || face === 3)[0]).toBe(20)
+})

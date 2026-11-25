@@ -1,4 +1,5 @@
 import type { BrainInfo, GrowthStlSource } from '../physics/growthStl'
+import { validChoice, type EdgeChoice } from './edgeChoices'
 import { DISK_DEFAULTS, type DiskSnapshot } from '../physics/growingDisk'
 import { validLayers } from '../physics/growthLayers'
 import { RIM_ROUNDNESS, WALL_SHIFT, type RimProfile, type WallSide } from './thicken'
@@ -45,6 +46,8 @@ export type DiskProject = {
   thickness?: Thickness
   // The print check's support angle, in degrees up from the bed.
   printAngle?: number
+  // Loops chosen with the Edges tool, to keep sharp or round on the print.
+  edges?: EdgeChoice[]
   // Version 1 fields, converted on open.
   rimWidth?: number
   brushRadius?: number
@@ -150,7 +153,8 @@ export function deserializeDiskProject(json: string) {
     || (project.phases !== undefined && !validPhases(project.phases))
     || (project.stopAt !== undefined && !validStop(project.stopAt))
     || (project.thickness !== undefined && !validThickness(project.thickness))
-    || (project.printAngle !== undefined && !finite(project.printAngle, PRINT_ANGLE_RANGE[0], PRINT_ANGLE_RANGE[1]))) throw invalid()
+    || (project.printAngle !== undefined && !finite(project.printAngle, PRINT_ANGLE_RANGE[0], PRINT_ANGLE_RANGE[1]))
+    || (project.edges !== undefined && !(Array.isArray(project.edges) && project.edges.every(validChoice)))) throw invalid()
   return {
     ...project,
     mechanics,
@@ -161,6 +165,8 @@ export function deserializeDiskProject(json: string) {
     phases: project.phases ?? [],
     stopAt: project.stopAt ?? STOP_DEFAULTS,
     printAngle: project.printAngle ?? PRINT_ANGLE_DEFAULT,
+    // Projects from before 0.18.0 have no edge choices.
+    edges: project.edges ?? [],
     // Growth Lab's version 1 had no thickness.
     // Projects from before 0.12.0 have no bevel. Those smoothed with 0.11 open at 100%, so they export as they did then;
     // the rest open with sharp edges kept sharp. Projects from 0.12.0 have a bevel but no angle: they used 40°.

@@ -23,8 +23,8 @@ import { exportBinaryStl, exportObj } from './lib/meshExport'
 import { PRESETS } from './lib/presets'
 import { rangeFill } from './lib/rangeFill'
 import { saveFile, type SaveResult } from './lib/saveFile'
-import { facingSign, printScale, RIM_ROUNDNESS, thicken, WALL_SHIFT, type RimProfile, type Solid, type WallSide } from './lib/thicken'
-import { SHARP_ANGLE_RANGE, sharpEdges, SMOOTH_MAX_TRIANGLES, smoothPassesFor, smoothSheet, ungrownEdges, type SmoothLevel } from './lib/smoothSheet'
+import { facingSign, printScale, RIM_ROUNDNESS, WALL_SHIFT, type RimProfile, type Solid, type WallSide } from './lib/thicken'
+import { SHARP_ANGLE_RANGE, sharpEdges, SMOOTH_MAX_TRIANGLES, smoothPassesFor, ungrownEdges, type SmoothLevel } from './lib/smoothSheet'
 import { createGrowingDisk, DISK_DEFAULTS, diskGravityDirection, NO_LIMIT_VERTICES, type BrushMode, type DiskSnapshot, type StrokePoint } from './physics/growingDisk'
 import type { GrowthLayer, Vec3 } from './physics/growthLayers'
 import { growthExportPositions, type GrowthStlSource } from './physics/growthStl'
@@ -34,6 +34,9 @@ import {
   flatBottomErase, foldLength, foldMechanics, foldSizeOf, loadBuiltInBrain, MAX_BUDGET_SCALE, type FoldSize,
 } from './lib/brain'
 import { closedSolid } from './lib/closedSolid'
+import { findBorders } from './lib/borders'
+import { choiceEdges, finalStatus, pickLoop, printEdges, ROUND_DEFAULT, ROUND_RANGE, sameLoop, smallestRound, type EdgeChoice, type EdgeStatus } from './lib/edgeChoices'
+import { printSheet, sheetSolid } from './lib/sheetSolid'
 import { readUpload } from './lib/upload'
 import { usePrintCheck } from './lib/usePrintCheck'
 import { PRINT_ANGLE_DEFAULT } from './lib/printCheck'
@@ -83,6 +86,11 @@ const creasesOf = (referencePositions: Float32Array, indices: Uint32Array, angle
 }
 // The edges that stay sharp when smoothing: sharp in the starting shape, and not grown since (lib/smoothSheet).
 const keptCreases = (disk: DiskSession, angle: number) => ungrownEdges(creasesOf(disk.referencePositions, disk.indices, angle), disk.localGrowth)
+// How far a round's facets may stray from a true circle, in mm: well under what a printer can show.
+const ROUND_TOLERANCE = 0.005
+// The thinnest wall a round on a closed shape may leave, in mm, unless the shape's own walls are thinner: two lines of a
+// 0.4 mm nozzle, the least the Wall thickness tooltip advises for filament printers.
+const ROUND_MIN_WALL = 0.8
 // A shape's radius for Fold size: the built-in brain is the reference the lengths are set for, so its three meshes, which
 // measure a little differently (1.173 to 1.182), all use its exact lengths; any other shape is measured.
 const sourceRadius = (source: GrowthStlSource | null) => source?.brain ? BRAIN_RADIUS : source ? boundingRadius(source.positions) : 1
@@ -105,7 +113,7 @@ const quickStartDismissed = () => { try { return localStorage.getItem(QUICK_STAR
 
 const OVERLAYS: Overlay[] = ['field', 'growth', 'contact', 'print', 'none']
 const SHORTCUTS: [string, string][] = [
-  ['Space', 'Play or stop'], ['.', 'Step'], ['O', 'Orbit'], ['B', 'Paint'], ['E', 'Erase'], ['S', 'Smooth'],
+  ['Space', 'Play or stop'], ['.', 'Step'], ['O', 'Orbit'], ['B', 'Paint'], ['E', 'Erase'], ['S', 'Smooth'], ['D', 'Edges'],
   ['[ and ]', 'Brush size'], ['⌘Z or Ctrl+Z', 'Undo brush stroke'], ['G', 'Next color overlay'], ['P', 'Print check'], ['F', 'Frame the model'],
   ['1 to 4', 'Mesh view'], ['⌘S or Ctrl+S', 'Save project'], ['Esc', 'Back to orbit'], ['?', 'Show shortcuts'],
 ]
@@ -143,6 +151,9 @@ export function App() {
   const [projectError, setProjectError] = useState('')
   const [exportStatus, setExportStatus] = useState('')
   const [thickness, setThickness] = useState<Thickness>(THICKNESS_DEFAULTS)
+  // Loops chosen with the Edges tool, and the loop under the pointer while it's on.
+  const [edgeChoices, setEdgeChoices] = useState<EdgeChoice[]>([])
+  const [hoverLoop, setHoverLoop] = useState<Uint32Array | null>(null)
   const [speed, setSpeed] = useState(3)
   const [batch, setBatch] = useState(100)
   const [importSpeed, setImportSpeed] = useState(1)
@@ -216,31 +227,33 @@ export function App() {
   // Smooth first smooths the sheet (Loop subdivision, see lib/smoothSheet), and the wall follows the smoothed surface.
   // Edges that bend more than sharpAngle in the starting shape, such as the edge around a flat bottom, stay sharp unless
   // bevel rounds them.
-  const makeSolid = (wallMm: number, rim: RimProfile, side: WallSide, size: number, smooth: SmoothLevel, bevel: number, sharpAngle: number) => {
+  // Loops chosen with the Edges tool are kept fully sharp while smoothing, and rounded after it, before the wall
+  // (lib/sheetSolid).
+  const makeSolid = (wallMm: number, rim: RimProfile, side: WallSide, size: number, smooth: SmoothLevel, bevel: number, sharpAngle: number, choices: EdgeChoice[]) => {
     const shift = side === 'both' ? 0 : WALL_SHIFT[side] * facingSign(disk.referencePositions, disk.indices, input ? 'outward' : 'up')
     const passes = smoothPassesFor(smooth, disk.indices.length / 3)
     const creases = passes && bevel < 1 ? keptCreases(disk, sharpAngle) : undefined
-    const sheet = passes ? smoothSheet(disk.positions, disk.indices, passes, { creases, bevel }) : null
-    const build = (scale: number) => {
-      const made = thicken(sheet ? sheet.positions : disk.positions, sheet ? sheet.indices : disk.indices, wallMm / scale, RIM_ROUNDNESS[rim], 4, shift)
-      // Point every solid vertex back to the grown sheet's vertices, so overlay colors carry over, and draw it smooth:
-      // a smoothed sheet has no facets to keep.
-      if (sheet) { made.blend = Uint32Array.from(made.origin, v => sheet.origin2[v]); made.origin = Uint32Array.from(made.origin, v => sheet.origin[v]); made.smooth = true }
-      return made
-    }
-    if (input) return { solid: build(input.scale), mmPerUnit: input.scale }
+    const plan = input && choices.length ? printEdges(choices, disk.referencePositions, disk.indices, disk.localGrowth, input.scale) : null
+    const sheet = printSheet(disk.positions, disk.indices, { passes, creases, bevel, keep: plan?.keep, rounds: plan?.rounds })
+    const build = (scale: number) => sheetSolid(sheet, { wall: wallMm / scale, roundness: RIM_ROUNDNESS[rim], shift, tolerance: ROUND_TOLERANCE / scale, sharpAngle })
+    if (input) { const solid = build(input.scale); return { solid, mmPerUnit: input.scale, plan, skipped: solid.skipped } }
+    // The default disk is scaled so the solid itself has the chosen longest side; it has no Edges choices.
     let mmPerUnit = printScale(disk.positions, null, size), solid = build(mmPerUnit)
     for (let pass = 0; pass < 2; pass++) { mmPerUnit = printScale(solid.positions, null, size); solid = build(mmPerUnit) }
-    return { solid, mmPerUnit }
+    return { solid, mmPerUnit, plan, skipped: solid.skipped }
   }
   // Deferred, so dragging the wall slider stays smooth on a dense mesh.
   const wall = useDeferredValue(thickness.wall), rimProfile = useDeferredValue(thickness.rim)
   const wallSide = useDeferredValue(thickness.side), printSize = useDeferredValue(thickness.size), smoothLevel = useDeferredValue(thickness.smooth)
-  const bevelAmount = useDeferredValue(thickness.bevel), sharpAngle = useDeferredValue(thickness.sharpAngle)
-  const solid = useMemo(() => solidOn && !active ? makeSolid(wall, rimProfile, wallSide, printSize, smoothLevel, bevelAmount, sharpAngle).solid : null,
+  const bevelAmount = useDeferredValue(thickness.bevel), sharpAngle = useDeferredValue(thickness.sharpAngle), choices = useDeferredValue(edgeChoices)
+  const sheetPrint = useMemo(() => solidOn && !active ? makeSolid(wall, rimProfile, wallSide, printSize, smoothLevel, bevelAmount, sharpAngle, choices) : null,
   // Positions change in place; the geometry revision tracks them.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  [solidOn, active, disk, disk.indices, disk.geometryRevision, wall, rimProfile, wallSide, printSize, smoothLevel, bevelAmount, sharpAngle, input])
+  [solidOn, active, disk, disk.indices, disk.geometryRevision, wall, rimProfile, wallSide, printSize, smoothLevel, bevelAmount, sharpAngle, input, choices])
+  // Whether the print shown has caught up with the settings, so export can write it as it is.
+  const sheetSettled = wall === thickness.wall && rimProfile === thickness.rim && wallSide === thickness.side && printSize === thickness.size
+    && smoothLevel === thickness.smooth && bevelAmount === thickness.bevel && sharpAngle === thickness.sharpAngle && choices === edgeChoices
+  const solid = sheetPrint?.solid ?? null
   // How many mesh edges of the starting shape are sharp enough to keep, for the Bevel control: counted while growth is
   // paused (the mesh splits often while it grows), and unknown meanwhile. How many smoothing passes really run.
   const sharpCount = useMemo(() => (solidOn || closedOn) && !active ? keptCreases(disk, sharpAngle).length / 2 : null,
@@ -261,16 +274,91 @@ export function App() {
   const baseRange: [number, number] = [0.5, Math.max(1, Math.round(0.25 * startHeight * 2) / 2)]
   const baseCut = Math.min(baseRange[1], Math.max(baseRange[0], thickness.baseCut))
   const flatBase = useDeferredValue(thickness.flatBase), deferredCut = useDeferredValue(baseCut)
-  const makeClosed = (smooth: SmoothLevel, bevel: number, angle: number, flat: boolean, cutMm: number) => {
+  const makeClosed = (smooth: SmoothLevel, bevel: number, angle: number, flat: boolean, cutMm: number, choices: EdgeChoice[]) => {
     const passes = smoothPassesFor(smooth, disk.indices.length / 3)
     const creases = passes && bevel < 1 ? keptCreases(disk, angle) : undefined
-    return closedSolid(disk.positions, disk.indices, { passes, creases, bevel, cut: flat && input ? cutMm / input.scale : 0 })
+    const plan = input && choices.length ? printEdges(choices, disk.referencePositions, disk.indices, disk.localGrowth, input.scale) : null
+    const solid = closedSolid(disk.positions, disk.indices, { passes, creases, bevel, keep: plan?.keep, rounds: plan?.rounds,
+      tolerance: input ? ROUND_TOLERANCE / input.scale : undefined, sharpAngle: angle, minWall: input ? ROUND_MIN_WALL / input.scale : undefined,
+      cut: flat && input ? cutMm / input.scale : 0 })
+    return { solid, plan, skipped: solid.skipped }
   }
-  const closedPrint = useMemo(() => closedOn && !active ? makeClosed(smoothLevel, bevelAmount, sharpAngle, flatBase, deferredCut) : null,
+  const closedResult = useMemo(() => closedOn && !active ? makeClosed(smoothLevel, bevelAmount, sharpAngle, flatBase, deferredCut, choices) : null,
   // Positions change in place; the geometry revision tracks them.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  [closedOn, active, disk, disk.indices, disk.geometryRevision, smoothLevel, bevelAmount, sharpAngle, flatBase, deferredCut, input])
+  [closedOn, active, disk, disk.indices, disk.geometryRevision, smoothLevel, bevelAmount, sharpAngle, flatBase, deferredCut, input, choices])
+  const closedSettled = smoothLevel === thickness.smooth && bevelAmount === thickness.bevel && sharpAngle === thickness.sharpAngle
+    && flatBase === thickness.flatBase && deferredCut === baseCut && choices === edgeChoices
+  const closedPrint = closedResult?.solid ?? null
   const printSolid = solid ?? closedPrint
+  // What became of each loop chosen with the Edges tool on the print, once it's made.
+  const printResult_ = sheetPrint ?? closedResult
+  const edgeStatus: Map<string, EdgeStatus> | null = printResult_?.plan ? finalStatus(printResult_.plan.status, printResult_.plan.roundIds, printResult_.skipped) : null
+  const roundedCount = edgeStatus ? [...edgeStatus.values()].filter(status => status === 'rounded').length : 0
+  const roundedText = roundedCount ? `, ${roundedCount} ${roundedCount === 1 ? 'loop' : 'loops'} rounded` : ''
+  // The Edges tool: the starting shape's design borders while it's on, the chosen loops and the one under the pointer.
+  const borders = useMemo(() => tool === 'edges' && input ? findBorders(disk.referencePositions, disk.indices, thickness.sharpAngle) : null,
+  // The mesh's indices change when it splits; its starting positions only gain points then.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [tool, input, disk, disk.indices, thickness.sharpAngle])
+  const chosenEdges = useMemo(() => tool === 'edges' ? edgeChoices.map(choice => ({ edges: choiceEdges(choice, disk.referencePositions, disk.indices), action: choice.action })) : [],
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [tool, edgeChoices, disk, disk.indices])
+  // A click picks the border within 3% of the model's size.
+  const EDGE_REACH = 0.03
+  const onEdgeHover = (point: Vec3 | null) => {
+    const loop = point && borders ? pickLoop(borders, disk.referencePositions, disk.positions, point, EDGE_REACH) : null
+    setHoverLoop(loop?.edges ?? null)
+  }
+  const onEdgePick = (point: Vec3, mode: 'set' | 'add' | 'remove' | 'toggle') => {
+    const loop = borders ? pickLoop(borders, disk.referencePositions, disk.positions, point, EDGE_REACH) : null
+    // A click that misses every border changes nothing: the loops chosen keep their settings.
+    if (!loop) return
+    const known = edgeChoices.find(choice => sameLoop(choice, loop))
+    const fresh: EdgeChoice = { id: `edge-${Date.now()}-${edgeChoices.length}`, points: Array.from(loop.points), closed: loop.closed, action: 'sharp', radius: ROUND_DEFAULT }
+    const remove = mode === 'remove' || (mode === 'toggle' && known)
+    setEdgeChoices(remove ? edgeChoices.filter(choice => choice !== known)
+      : mode === 'add' || mode === 'toggle' ? (known ? edgeChoices : [...edgeChoices, fresh])
+        : [known ?? fresh])
+    touch(); setExportStatus('')
+  }
+  // A loop's length in mm, and what became of it on the print.
+  const loopLength = (choice: EdgeChoice) => {
+    const p = choice.points, n = p.length / 3
+    let length = 0
+    for (let i = 0; i + (choice.closed ? 0 : 1) < n; i++) { const j = (i + 1) % n; length += Math.hypot(p[j * 3] - p[i * 3], p[j * 3 + 1] - p[i * 3 + 1], p[j * 3 + 2] - p[i * 3 + 2]) }
+    return length * (input?.scale ?? 1)
+  }
+  const edgeText = (choice: EdgeChoice) => {
+    const status = edgeStatus?.get(choice.id)
+    if (active) return choice.action === 'round' ? 'Rounded on the print, shown when growth pauses.' : 'Kept sharp on the print, shown when growth pauses.'
+    if (!status || choices !== edgeChoices) return 'Updating the print…'
+    if (status === 'kept') return 'Kept sharp.'
+    if (status === 'rounded') return `Rounded with a ${choice.radius.toFixed(1)} mm radius.`
+    if (status === 'grown') return 'Left as it grew: this part has grown, so its edges folded with it and are smoothed like the rest.'
+    if (status === 'missing') return "Not found on the shape any more. Remove it, or choose the loop again."
+    if (status === 'meets an edge') return 'Left sharp: another sharp edge meets this loop, as at a corner, or where a fold of the grown surface reaches it. A round can\'t blend into it.'
+    if (status === 'cut away') return 'Cut away: Flat base cuts the print above this loop, so its round isn\'t on the print. Lower Base cut, or turn Flat base off.'
+    if (status === 'no room') return 'Left sharp: a round this big has no room here. It would reach another edge or a rim, or meet itself across a narrow face. Try a smaller radius.'
+    if (status === 'too sharp') return 'Left sharp: the faces here meet at less than 10°, a knife edge no round fits.'
+    if (status === 'turns over') return 'Left sharp: moving the points here would turn faces over, as where long, thin faces cross a tight curve. Try a smaller radius.'
+    if (status === 'cuts through') return 'Left sharp: a round this big would cut through to another part of the surface, as through a thin wall into a pot. Try a smaller radius.'
+    if (status === 'under the wall') {
+      // The wall's part on the round's inner side: half of it on both sides, or all of it, since that side has the wall.
+      const inner = thickness.side === 'both' ? thickness.wall / 2 : thickness.wall, least = smallestRound(inner)
+      return `Left sharp: on this round's inner side the wall is ${inner.toFixed(1)} mm thick, too close to its radius, so the wall's inner face would fold. Use at least ${least.toFixed(1)} mm, a thinner wall, or Wall side to move the wall off that side.`
+    }
+    if (status === 'thins the wall') {
+      const index = printResult_?.plan?.roundIds.indexOf(choice.id) ?? -1, entry = printResult_?.skipped.find(s => s.loop === index)
+      const scale = input?.scale ?? 1, left = (entry?.left ?? 0) * scale, need = (entry?.need ?? 0) * scale
+      return `Left sharp: a round this big would leave the wall only ${left.toFixed(2)} mm thick here, ${need < ROUND_MIN_WALL - 1e-3
+        ? `thinner than the shape's own ${need.toFixed(2)} mm walls` : `less than the ${ROUND_MIN_WALL} mm most filament printers need`}. Try a smaller radius.`
+    }
+    if (status === 'folds the wall') return 'Left sharp: with this round, the wall would cross itself, as where the round comes within the wall\'s thickness of another part of the shape, or where facets meet at a crease. Try a smaller radius, a thinner wall, or Wall side to put the wall on the round\'s outer side.'
+    return 'Left sharp: a round needs one closed loop with a face on each side.'
+  }
+  const changeChoice = (id: string, patch: Partial<EdgeChoice>) => { setEdgeChoices(list => list.map(choice => choice.id === id ? { ...choice, ...patch } : choice)); touch(); setExportStatus('') }
+  const removeChoice = (id: string) => { setEdgeChoices(list => list.filter(choice => choice.id !== id)); touch(); setExportStatus('') }
   useEffect(() => {
     if (!printSolid) return
     const target = printSolid
@@ -284,7 +372,8 @@ export function App() {
       setSolidCheck({ solid: target, leaks: 0, pairs: 0, capped: false, vertices: [], failed: true })
       worker.terminate()
     }
-    const timer = window.setTimeout(() => worker.postMessage({ positions: target.positions, indices: target.indices, origin: target.origin, limit: CROSSING_LIMIT }), 200)
+    // A sheet's rounds count their own points, so folds inside a round are seen (lib/sheetSolid).
+    const timer = window.setTimeout(() => worker.postMessage({ positions: target.positions, indices: target.indices, origin: target.groups ?? target.origin, limit: CROSSING_LIMIT }), 200)
     return () => { window.clearTimeout(timer); worker.terminate() }
   }, [printSolid])
   const crossings = solidCheck?.solid === printSolid ? solidCheck : null
@@ -406,6 +495,7 @@ export function App() {
     adopt(fresh)
     if (fromClosed) { setThickness(THICKNESS_DEFAULTS); setStopAt(STOP_DEFAULTS); setPhases([]) }
     setCenterExport(false)
+    setEdgeChoices([]); setHoverLoop(null)
     // Cell outlines on a very dense mesh are slow and hide the form, so start large meshes on the plain surface.
     setView(current => fresh.indices.length / 3 > SLOW_TRIANGLES ? 'smooth' : !fromClosed && current === 'fans' ? 'fans' : 'cells')
     setTool('orbit')
@@ -438,6 +528,7 @@ export function App() {
     setTool('orbit')
     setCoreOpen(true)
     setCenterExport(false)
+    setEdgeChoices([]); setHoverLoop(null)
     setNotice('')
     showImportError('')
     setExportStatus('')
@@ -521,8 +612,11 @@ export function App() {
     : result === 'downloaded' ? `Download requested for ${filename}. If no file appears, open Growth Studio in Chrome or Safari.`
       : result === 'cancelled' ? 'Save cancelled.' : `Could not save ${filename}.`
   const exportMesh = async (format: 'obj' | 'stl') => {
-    const made = solidOn ? makeSolid(thickness.wall, thickness.rim, thickness.side, thickness.size, thickness.smooth, thickness.bevel, thickness.sharpAngle) : null
-    const layer = closedOn ? closedPrint ?? makeClosed(thickness.smooth, thickness.bevel, thickness.sharpAngle, thickness.flatBase, baseCut) : null
+    // The print shown, once it has caught up with the settings; made afresh otherwise, as while growth runs.
+    const made = !solidOn ? null : sheetPrint && sheetSettled ? sheetPrint
+      : makeSolid(thickness.wall, thickness.rim, thickness.side, thickness.size, thickness.smooth, thickness.bevel, thickness.sharpAngle, edgeChoices)
+    const layer = !closedOn ? null : closedPrint && closedSettled ? closedPrint
+      : makeClosed(thickness.smooth, thickness.bevel, thickness.sharpAngle, thickness.flatBase, baseCut, edgeChoices).solid
     const surface = made?.solid.positions ?? layer?.positions ?? disk.positions, indices = made?.solid.indices ?? layer?.indices ?? disk.indices
     // A solid is written in millimeters: the STL's own, or the default disk at its chosen size.
     const positions = input ? growthExportPositions(surface, input, centerExport) : made ? surface.map(value => value * made.mmPerUnit) : surface
@@ -541,7 +635,7 @@ export function App() {
     const { snapshot } = await disk.requestSnap()
     const json = serializeDiskProject({
       source, disk: snapshot, mechanics, revision: step, centerExport, relaxing, view,
-      speed, batch, importSpeed, importBatch, brush, overlay, ghost, phases, stopAt, thickness, printAngle,
+      speed, batch, importSpeed, importBatch, brush, overlay, ghost, phases, stopAt, thickness, printAngle, edges: edgeChoices,
     })
     const filename = `${snapshotName}.growthstudio.json`
     const saved = { step, edits }
@@ -586,6 +680,8 @@ export function App() {
       setStopAt(project.stopAt)
       setThickness(project.thickness)
       setPrintAngle(project.printAngle ?? PRINT_ANGLE_DEFAULT)
+      setEdgeChoices(project.edges)
+      setHoverLoop(null)
       setTool('orbit')
       showImportError('')
       setExportStatus('')
@@ -762,6 +858,7 @@ export function App() {
     else if (key === 'b' || key === 'B') setTool('paint')
     else if (key === 'e' || key === 'E') setTool('erase')
     else if (key === 's' || key === 'S') setTool('smooth')
+    else if (key === 'd' || key === 'D') { if (input) setTool('edges') }
     else if (key === '[') setBrush(b => ({ ...b, radius: Math.max(0.02, +(b.radius / 1.15).toFixed(3)) }))
     else if (key === ']') setBrush(b => ({ ...b, radius: Math.min(0.6, +(b.radius * 1.15).toFixed(3)) }))
     else if (key === 'g' || key === 'G') chooseOverlay(OVERLAYS[(OVERLAYS.indexOf(overlay) + 1) % OVERLAYS.length])
@@ -840,7 +937,8 @@ export function App() {
       <Viewport disk={disk} tick={tick} view={view} overlay={overlay} ghost={ghost} imported={Boolean(input)} running={running}
         tool={tool} canEdit={!loading} brush={brush} rimEdges={rimEdges} layers={layers} selectedLayerId={selectedLayer?.id ?? null}
         onStroke={onStroke} onPlace={onPlace} gravityArrow={gravityArrow} cameraKey={cameraKey} belowKey={belowKey}
-        solid={shownSolid} crossings={shownSolid ? crossings?.vertices ?? null : null}
+        solid={tool === 'edges' ? null : shownSolid} crossings={shownSolid && tool !== 'edges' ? crossings?.vertices ?? null : null}
+        borders={borders} chosen={chosenEdges} hoverLoop={tool === 'edges' ? hoverLoop : null} onEdgeHover={onEdgeHover} onEdgePick={onEdgePick}
         print={overlay === 'print' ? { angle: printAngle, low: printResult?.low ?? -Infinity, bedTolerance: printResult?.bedTolerance ?? 0,
           twoSided: printTwoSided, marks: printResult?.marks ?? [] } : null}
         smooth={Boolean(input?.brain)} />
@@ -991,6 +1089,8 @@ export function App() {
     <section className="center" aria-label="3D view">
       <ViewportBars tool={tool} brush={brush} canUndo={disk.canUndoBrush} overlay={overlay} view={view} ghost={ghost}
         placing={tool === 'point' ? `Placing ${selectedLayer?.name ?? 'point'}` : tool === 'line' ? `Drawing ${selectedLayer?.name ?? 'line'}` : null}
+        canEdges={Boolean(input)} edgesHint={tool !== 'edges' ? null : borders && !borders.sharp.length && !borders.smooth.length ? 'This shape has no designed edges to choose.'
+          : `${edgeChoices.length ? `${edgeChoices.length} ${edgeChoices.length === 1 ? 'loop' : 'loops'} chosen. ` : ''}${touchScreen ? 'Tap an edge to add its loop, or tap it again to remove it' : 'Click an edge to choose its loop · Shift-click adds · Option-click removes'}`}
         onTool={setTool} onBrush={setBrush} onUndo={undoStroke} onOverlay={chooseOverlay} onView={setView} onGhost={setGhost}
         printAngle={printAngle} printReadout={printReadout} onPrintAngle={setPrintAngle} onBelow={() => setBelowKey(k => k + 1)}
         onFrame={() => setCameraKey(k => k + 1)} />
@@ -1135,6 +1235,25 @@ export function App() {
                   : sharpCount === 0 ? `This shape has no edges that bend more than ${thickness.sharpAngle}° where it hasn't grown, so there is nothing to bevel. Lower Sharp edge angle to find softer ones.`
                     : `${sharpCount === null ? 'Some edges may bend' : `${sharpCount.toLocaleString()} mesh ${sharpCount === 1 ? 'edge bends' : 'edges bend'}`} more than ${thickness.sharpAngle}° in the starting shape where it hasn't grown, such as the edge around a flat bottom. At 0% they stay sharp, so a print sits flat on the bed. Higher values round them more; 100% is as smooth as the rest of the surface.${sharpCount === null ? ' The count shows when growth pauses.' : ''}`}
               onChange={bevel => changeThickness({ bevel })} />
+            {input && <div className="group-field edge-choices"><span>Edges</span>
+              {!edgeChoices.length && <p className="hint">Choose loops of the starting shape's edges with the Edges tool (D) above the 3D view, to keep them sharp or round them on the print.</p>}
+              {edgeChoices.map((choice, i) => <div className="edge-choice" key={choice.id}>
+                <div className="edge-choice-head"><span>Loop {i + 1}, {loopLength(choice).toFixed(0)} mm{choice.closed ? '' : ', with ends'}</span>
+                  <button type="button" aria-label={`Remove loop ${i + 1}`} data-tip="Stop treating this loop on its own: the settings above smooth it like the rest."
+                    onClick={() => removeChoice(choice.id)}>Remove</button></div>
+                <div className="button-row" role="group" aria-label={`Loop ${i + 1} on the print`}>
+                  <button type="button" aria-pressed={choice.action === 'sharp'} data-tip={choice.closed ? 'Keep this loop fully sharp on the print, whatever the smoothing and bevel.'
+                      : 'Keep this loop sharp on the print, whatever the smoothing and bevel. It has ends, so at its ends it is only as sharp as the edges it meets there: with Bevel above 0%, it fades out toward them.'}
+                    onClick={() => changeChoice(choice.id, { action: 'sharp' })}>Keep sharp</button>
+                  <button type="button" aria-pressed={choice.action === 'round'} disabled={!choice.closed}
+                    data-tip={choice.closed ? 'Round this loop on the print, with a true round of the radius below.' : 'Rounds need a loop that goes all the way round. This one ends at corners.'}
+                    onClick={() => changeChoice(choice.id, { action: 'round' })}>Round</button>
+                </div>
+                {choice.action === 'round' && <Slider label="Radius" value={choice.radius} display={`${choice.radius.toFixed(1)} mm`} min={ROUND_RANGE[0]} max={ROUND_RANGE[1]} step={0.1}
+                  title="The round's radius, in mm. A round smaller than about half the line width (0.2 mm with a 0.4 mm nozzle) prints like a sharp edge; along the bed, the layer height decides instead." onChange={radius => changeChoice(choice.id, { radius })} />}
+                <p className="hint" role="status">{edgeText(choice)}</p>
+              </div>)}
+            </div>}
           </>}
           {solidOn && <>
             <Slider label="Wall thickness" value={thickness.wall} display={`${thickness.wall.toFixed(1)} mm`} min={0.2} max={5} step={0.1}
@@ -1167,7 +1286,7 @@ export function App() {
                   ? `The surface already crosses itself, so the wall does too, in ${crossingCount}${thickness.show ? ', shown in pink' : ''}. Combine the bodies in your CAD tool before printing.`
                   : `The wall crosses itself in ${crossingCount}${thickness.show ? ', shown in pink' : ''}, where folds come closer together, or bend more tightly, than the wall is thick. Most slicers merge these. For a clean solid, use a thinner wall.`)
                   : `Closed solid with no crossings, ${(solid!.indices.length / 3).toLocaleString()} triangles${smoothPasses ? `, smoothed ${smoothPasses === 2 ? 'twice' : 'once'} before the wall` : ''}${smoothPasses && sharpCount
-                    ? thickness.bevel <= 0 ? ', sharp edges kept' : thickness.bevel >= 1 ? ', sharp edges rounded' : `, sharp edges beveled ${percent(thickness.bevel)}` : ''}.`}</p>
+                    ? thickness.bevel <= 0 ? ', sharp edges kept' : thickness.bevel >= 1 ? ', sharp edges rounded' : `, sharp edges beveled ${percent(thickness.bevel)}` : ''}${roundedText}.`}</p>
           </>}
           {closedOn && <>
             <label data-tip="Cut the bottom flat, so a print sits on the bed without supports under it."><span>Flat base <input type="checkbox" checked={thickness.flatBase}
@@ -1181,9 +1300,11 @@ export function App() {
                 : crossings.failed ? "The solid couldn't be checked in this browser. It still exports."
                 : crossings.leaks ? `The solid isn't closed along ${crossings.leaks.toLocaleString()} ${crossings.leaks === 1 ? 'edge' : 'edges'}, where the surface pinches to a point. Repair the STL in your CAD tool before printing.`
                 : crossings.pairs && (disk.initialOverlap || disk.ignoringOverlaps) ? `The surface already crosses itself, so the solid does too, in ${crossingCount}${thickness.show ? ', shown in pink' : ''}. Combine the bodies in your CAD tool before printing.`
-                : crossings.pairs ? `The smoothed surface crosses itself in ${crossingCount}${thickness.show ? ', shown in pink' : ''}, where folds bend more tightly than smoothing can follow. Most slicers merge these. For a clean solid, use less smoothing: with Smooth surface off, the solid is the grown surface, which growth keeps from crossing.`
+                : crossings.pairs ? (smoothPasses
+                  ? `The smoothed surface crosses itself in ${crossingCount}${thickness.show ? ', shown in pink' : ''}, where folds bend more tightly than smoothing can follow. Most slicers merge these. For a clean solid, use less smoothing: with Smooth surface off, the solid is the grown surface, which growth keeps from crossing${roundedCount ? ', and its rounds, which are left sharp where they would cut through it' : ''}.`
+                  : `The solid crosses itself in ${crossingCount}${thickness.show ? ', shown in pink' : ''}. Most slicers merge these.`)
                   : `Closed solid with no crossings, ${(closedPrint!.indices.length / 3).toLocaleString()} triangles${smoothPasses ? `, smoothed ${smoothPasses === 2 ? 'twice' : 'once'}` : ''}${smoothPasses && sharpCount
-                    ? thickness.bevel <= 0 ? ', sharp edges kept' : thickness.bevel >= 1 ? ', sharp edges rounded' : `, sharp edges beveled ${percent(thickness.bevel)}` : ''}${thickness.flatBase ? `. The bottom ${baseCut.toFixed(1)} mm is cut flat` : ''}.`}</p>
+                    ? thickness.bevel <= 0 ? ', sharp edges kept' : thickness.bevel >= 1 ? ', sharp edges rounded' : `, sharp edges beveled ${percent(thickness.bevel)}` : ''}${roundedText}${thickness.flatBase ? `. The bottom ${baseCut.toFixed(1)} mm is cut flat` : ''}.`}</p>
           </>}
           <div className="button-row">
             <button disabled={active} data-tip={active ? 'Stop the simulation to export.' : solidOn ? 'Save the solid as an OBJ mesh, in millimeters.' : 'Save the current surface as an OBJ mesh.'} onClick={() => void exportMesh('obj')}>Export OBJ</button>

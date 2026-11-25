@@ -49,7 +49,7 @@ On tablets the 3D view sits on top, with both panels below it. On phones everyth
 
 1. **Starting surface.** Use the default disk, the built-in brain, or **Upload STL**. An STL is used as it is: open rims are detected automatically, and a closed shape grows over its whole surface with Brain folds (see [Brain folds](#brain-folds)).
 2. **Growth layers.** Decide where growth comes from. Each layer has a strength, its own settings, and optional timing.
-3. **Brush.** Pick Paint, Erase, or Smooth above the 3D view and brush growth onto the model, even while it grows.
+3. **Brush.** Pick Paint, Erase, or Smooth above the 3D view and brush growth onto the model, even while it grows. On an uploaded STL, **Edges** shows its designed edges: click one to choose its loop, to keep it sharp or round it on the print (see [Thickness for printing](#thickness-for-printing)).
 4. **Grow.** Press **Play growth** in the timeline dock, step in batches, or run a recipe of phases. **Relax only** lets the form settle without adding growth.
 5. **Look back.** Scrub the timeline to any snapshot and continue from there.
 6. **Save and export.** **Save project** writes an editable `.growthstudio.json` file. **Export OBJ** or **Export STL** writes the current surface in the STL's original coordinates, unless **Center exported mesh** is checked.
@@ -109,6 +109,7 @@ Every layer can start and stop at timeline steps, and intensity keyframes ramp i
 | Smooth surface | **Off** uses the surface as it grew. **Light** smooths it once, before the wall on a sheet: four times the triangles, and most facets gone. **Strong** smooths it twice: sixteen times the triangles, smooth even on a coarse sheet. Smoothing is Loop subdivision; open rims follow a smooth curve through their own points, so a flat bottom rim stays flat. Edges that bend more than the Sharp edge angle in the starting shape, 30° by default, such as the edge around a vase base's flat bottom, stay sharp where the surface hasn't grown, so the print still sits flat on the bed. Where it grew, they fold with the surface and are smoothed like the rest: kept sharp, the folded edges of a pen holder grown with Brain folds made its Light-smoothed solid cross itself in 18 places. A very coarse sheet whose facets bend more than that keeps them too, unless you raise Sharp edge angle or Bevel. Folds soften a little: the upright Collar's solid is about 0.5 mm narrower. A level that would pass 400,000 triangles is unavailable, and its button says why. |
 | Sharp edge angle | How sharp an edge must be in the starting shape to stay sharp when smoothing: 30° by default, from 10° to 60°. Lower it to catch softer edges, such as a shallow chamfer; raise it to smooth the facets of a coarse mesh. On a pen holder whose 3 mm bottom chamfer bends 45° at the bed and 35° at the wall, Strong smoothing at 40° moved the outside of the chamfer's top edge by up to 0.5 mm; at 30° the exported solid matches the unsmoothed one within 0.07 mm. The tooltip says how many mesh edges are sharp at that angle. Projects saved with 0.12.0 open at 40°, the rule that version used. |
 | Bevel sharp edges | Rounds those sharp edges: **0%** keeps them sharp, higher values round them more, and **100%** rounds them like the rest of the surface, as 0.11 did. On a vase base with a flat bottom 60 mm across, grown with Lettuce edge and given a 1.2 mm wall, the Light-smoothed solid stands on a circle 61 mm across at 0%, and about 59 mm from 50% up. The tooltip says how many mesh edges are sharp, and the status line under the solid says whether they're kept, beveled or rounded. With Smooth surface off, on a sheet too large to smooth, or on a shape with no sharp edges (the default disk, the weave vase), it's unavailable and says why. Projects saved with 0.11 that use smoothing open at 100%, so they export as before. |
+| Edges | Loops of the starting shape's edges chosen with the **Edges** tool (D) above the 3D view, listed here. Click an edge to choose just its loop, Shift-click to add one, and Option-click to remove one; on a touch screen, tap to add and tap again to remove. Each loop is **Keep sharp** or **Round**. **Keep sharp** keeps a loop that closes all the way round fully sharp, whatever Smooth surface and Bevel do; a loop with ends, such as one edge of a box, is only as sharp at its ends as the edges it meets there, so with Bevel above 0% it fades out toward them. **Round** makes a true round of 0.5 to 10 mm, described under [Rounds](#rounds). |
 | Wall thickness | The total wall, 0.2 to 5 mm. Most filament printers need at least 0.8 mm, and resin printers about 0.5 mm. |
 | Wall side | **Both** centers the wall on the surface. **Outside** puts all of it outside, so the grown surface becomes the inner face; **Inside** puts all of it inside, so the outer size doesn't change. On the default disk these are **Top** and **Bottom**. |
 | Rim edge | **Round** closes each rim with a half-round edge, like a leaf or petal. **Soft** is a flat edge with rounded corners, and **Square** cuts straight across the wall. |
@@ -118,6 +119,23 @@ Every layer can start and stop at timeline steps, and intensity keyframes ramp i
 With Smooth surface off, every fold of the grown surface is kept: the wall is offset along the surface, not rebuilt. With it on, the wall follows the smoothed surface. Where folds come closer together, or bend more tightly, than the wall is thick, the wall passes through itself. The app checks for this after each change and colors those places pink. It also checks that the solid is closed, and says so if the STL pinches to a point or has faces turned inconsistently. Most slicers merge them; for a clean solid, use a thinner wall, or grow with a larger **Repel distance** so folds stay further apart.
 
 On a **closed shape**, such as a brain, the switch is **Print solid**, since the shape is a solid already. Export writes the grown surface itself, smoothed with **Smooth surface**, **Sharp edge angle** and **Bevel sharp edges** as a sheet is, in millimeters. **Flat base** cuts it flat at the bottom, **Base cut** mm up (5 mm by default), so a print stands on the bed without supports under it; the cut is closed with a flat cap, its holes kept, so the solid stays watertight. Nothing is rebuilt or merged, so thin walls stay as they are and close folds stay two surfaces: folds closer than your nozzle width, about 0.4 mm, fuse in print, so keep **Repel distance** at least that. The app checks the solid each time growth pauses, as it checks a wall. On the built-in brain grown 142 steps, the Light-smoothed solid with a 5 mm flat base had 107,516 triangles, every edge shared by two faces, and stood on 10.8 cm². On a fully grown brain it builds in about 0.15 s, measured in Node.
+
+### Rounds
+
+A round from the Edges tool is made on the print only, after smoothing and before the wall or flat base, and only where the shape hasn't grown: a loop on a part that grew is smoothed with the rest.
+
+- A round is the surface a ball of its radius leaves when rolled along the edge, touching the faces on both sides. A 2 mm round on a cylinder's bottom rim, exported from the app, lies within 0.022 mm of a true 2 mm circle.
+- On an open sheet the round is made on the sheet, and the wall follows it. The wall's outer face gets a round larger by the part of the wall outside the sheet, and its inner face one smaller by the part inside: with a 1.2 mm wall on both sides, a 2 mm round prints 2.6 mm outside and 1.4 mm inside.
+- On a closed shape a round cuts into the wall behind it: a 3 mm round on a pot with 1.2 mm walls would leave 0.45 mm at the corner.
+- A loop the round doesn't fit is left sharp, and its card says why:
+  - it doesn't close all the way round, or another sharp edge meets it, as at a box's corner;
+  - the round would reach another sharp edge or an open rim, meet itself across a narrow face, or curve more tightly than the round;
+  - its faces meet at less than 10°, or a face would turn over;
+  - the round would cut through to another part of the surface, as through a pot's thin wall;
+  - on a closed shape, it would leave the wall behind it thinner than 0.8 mm, or than the shape's own walls beside it where those are thinner;
+  - on a sheet, the wall on its inner side would leave that face less than a tenth of the round, or the wall would cross itself along it;
+  - or Flat base cuts it away.
+- On a vase base's bottom loop of 72 edges, with a 1.2 mm wall, the print solid with a 2 mm round takes 226 ms as uploaded, 476 ms with Light smoothing and 613 ms with Strong, against 5, 7 and 24 ms without it, measured in Node on the mesh the app prepares.
 
 ## Print check
 
@@ -165,7 +183,7 @@ In the **Explore** tab, **Presets** set layers and settings for common forms: le
 | --- | --- |
 | Space | Play or stop. On a button reached with Tab, Space presses that button instead. |
 | . | Step |
-| O, B, E, S | Orbit, paint, erase, smooth |
+| O, B, E, S, D | Orbit, paint, erase, smooth, edges |
 | [ and ] | Brush size |
 | ⌘Z or Ctrl+Z | Undo brush stroke |
 | G | Next color overlay |
@@ -197,7 +215,15 @@ This is a position-based design model. It is not a validated thin-shell or biolo
 - Browsers may slow work in hidden tabs, so growth can slow down while the tab is hidden. The view catches up when you return.
 - The built-in brain grows its 420 steps in about a minute and a half in Chrome (89 s on an M1 Max, 4.7 steps a second), ending at 16,508 points. Fine folds start from 9,564 points instead of 6,288 and take about 2½ minutes (161 s), ending at 24,592 points.
 - On a closed shape with thin walls, such as a pen holder, a wall's two faces fold separately, kept apart by Repel distance, so check its thickness after growth.
-- Smoothing a grown surface can make very tight folds cross. The status line says where, and Smooth surface off exports the grown surface, which growth keeps from crossing.
+- Rounds work on loops that close all the way round. A loop that ends at corners, such as one edge of a box, can be kept sharp but not rounded, since a round can't yet blend into a corner.
+- On a coarse CAD mesh, a round along a very tight curve, such as the end of a narrow raised letter, may be left sharp: try a smaller radius. Smoothing changes the faces there, which can help or not.
+- Rounds assume the faces beside the loop are flat. On a curved face, such as a domed bottom, a large round strays from the true rolling ball: a 5 mm round on a dome of 18 mm radius by about 0.15 mm, a 2 mm round by 0.015 mm. On a saddle-shaped face, a few narrow faces of a round can bend enough to show in smooth shading, though the round doesn't cross itself.
+- On a grown pot, the loop around its held bottom is usually left sharp ("another sharp edge meets this loop"): the folds of the grown wall reach the bottom edge.
+- Where a round meets the faces beside it, a sheet's wall can have a few thin faces turned over, up to about 0.01 mm wide: on a 48-facet cup with Light smoothing and a 5 mm round, 8 covering 0.011 mm² with the wall on both sides, and 16 covering 0.15 mm² with it inside. The crossing check doesn't count them, and they are far below what a printer can show.
+- The wall a round leaves on a closed shape is measured from the round's rows, with a 2% margin under 0.8 mm. At a corner whose walls differ, the thinnest place can lie between rows, so a round can be made that leaves about 0.015 mm less than the margin allows.
+- Rounds are made on the page's thread when growth pauses, so the page waits while they're made: on a sheet of 400,000 triangles with Light smoothing, each change to a round takes about 1.7 s, against 0.36 s for the solid without it.
+- A round on an edge that sits on the bed starts with its steepest overhang: with 0.2 mm layers, a 2 mm round's second layer hangs 0.43 mm past its first, about a line width, and a 0.5 mm round's 0.16 mm. Keep such an edge sharp or its round small; a 45° chamfer, made in your CAD tool, prints cleaner there.
+- Smoothing a grown surface can make very tight folds cross. The status line says where, and Smooth surface off exports the grown surface, which growth keeps from crossing, with any rounds, which are left sharp where they would cut through it.
 - Rim presets grow from open rims, so on a closed shape only Brain folds and paint grow.
 
 ## Development

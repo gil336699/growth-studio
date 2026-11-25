@@ -1,4 +1,4 @@
-import { OrbitControls } from '@react-three/drei'
+import { Line as FatLine, OrbitControls } from '@react-three/drei'
 import { Canvas, useFrame, type ThreeEvent } from '@react-three/fiber'
 import { type ComponentRef, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -25,6 +25,9 @@ const OVERLAY_COLORS: Record<Overlay, Color> = {
 }
 // Where a thickened wall crosses itself.
 const CROSSING = new Color('#ff2d95')
+// The Edges tool: borders of the starting shape, sharp and smooth, and loops kept sharp, rounded, or under the pointer.
+const SHARP_BORDER = new Color('#3a3a3c'), SMOOTH_BORDER = new Color('#98989d')
+const KEEP_EDGE = '#0a84ff', ROUND_EDGE = '#ff9500', HOVER_EDGE = '#ffd60a'
 
 // The lamp keeps its place beside the camera, a little right of and above it, as it is at the start. A lamp fixed in
 // the scene left whichever side faced away from it lit only by the ambient light, in flat grey, after orbiting there.
@@ -62,12 +65,20 @@ type SheetProps = {
   offset?: number
   // The print check's colors and low points, while the Print check color is on.
   print?: (PrintView & { marks: [number, number, number][] }) | null
+  // The Edges tool: the starting shape's borders, the loops chosen and what the print does with each, and the loop under
+  // the pointer, all as edges of the mesh as it is now.
+  borders?: { sharp: Uint32Array; smooth: Uint32Array } | null
+  chosen?: { edges: Uint32Array; action: 'sharp' | 'round' }[]
+  hoverLoop?: Uint32Array | null
+  onEdgeHover?: (point: Vec3 | null) => void
+  // With a mouse, a click chooses just that loop, Shift adds and Option removes; a finger or pen, with no keys, toggles.
+  onEdgePick?: (point: Vec3, mode: 'set' | 'add' | 'remove' | 'toggle') => void
   onStroke: (points: StrokePoint[], pressure: number, first: boolean) => void
   onPlace: (point: Vec3) => void
 }
 
 function Sheet(props: SheetProps) {
-  const { disk, tick, view, overlay, ghost, imported, running, tool, canEdit, brush, rimEdges, layers, selectedLayerId, solid, crossings, print } = props
+  const { disk, tick, view, overlay, ghost, imported, running, tool, canEdit, brush, rimEdges, layers, selectedLayerId, solid, crossings, print, borders, chosen, hoverLoop } = props
   const smooth = Boolean(props.smooth), offset = props.offset ?? 0
   // An STL is drawn flat-shaded, facets and all, unless it's a brain-mode shape or the layer preview needs normals.
   const normals = !imported || smooth || offset > 0
@@ -210,6 +221,27 @@ function Sheet(props: SheetProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rimEdges, positions, geometryRevision])
   useEffect(() => () => rimOutline?.dispose(), [rimOutline])
+  // All the borders, thin; the chosen loops and the one under the pointer, thicker, on top.
+  const borderLines = useMemo(() => {
+    if (!borders) return null
+    const lines = new BufferGeometry(), count = borders.sharp.length + borders.smooth.length
+    const xyz = new Float32Array(count * 3), rgb = new Float32Array(count * 3)
+    let k = 0
+    for (const [edges, color] of [[borders.smooth, SMOOTH_BORDER], [borders.sharp, SHARP_BORDER]] as const) for (const v of edges) {
+      xyz.set(positions.subarray(v * 3, v * 3 + 3), k * 3); color.toArray(rgb, k * 3); k++
+    }
+    lines.setAttribute('position', new BufferAttribute(xyz, 3))
+    lines.setAttribute('color', new BufferAttribute(rgb, 3))
+    return lines
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [borders, positions, geometryRevision])
+  useEffect(() => () => borderLines?.dispose(), [borderLines])
+  const loopLines = useMemo(() => {
+    const points = (edges: Uint32Array) => Array.from(edges, v => [positions[v * 3], positions[v * 3 + 1], positions[v * 3 + 2]] as [number, number, number])
+    return [...(chosen ?? []).filter(loop => loop.edges.length).map(loop => ({ points: points(loop.edges), color: loop.action === 'round' ? ROUND_EDGE : KEEP_EDGE })),
+      ...(hoverLoop?.length ? [{ points: points(hoverLoop), color: HOVER_EDGE }] : [])]
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chosen, hoverLoop, positions, geometryRevision])
 
   // Point and line layer markers, drawn on the grown surface at the nearest starting vertex.
   const markers = useMemo(() => {
@@ -234,6 +266,7 @@ function Sheet(props: SheetProps) {
   const [hover, setHover] = useState<{ point: Vec3; normal: Vec3 } | null>(null)
   const brushing = canEdit && (tool === 'paint' || tool === 'erase' || tool === 'smooth')
   const placing = canEdit && (tool === 'point' || tool === 'line')
+  const picking = canEdit && tool === 'edges'
   const axis = useMemo(() => verticalAxis(positions),
   // eslint-disable-next-line react-hooks/exhaustive-deps
     [positions, geometryRevision])
@@ -260,6 +293,12 @@ function Sheet(props: SheetProps) {
   return <group>
     <mesh geometry={geometry}
       onPointerDown={event => {
+        if (picking && event.button === 0) {
+          event.stopPropagation()
+          const { shiftKey, altKey, pointerType } = event.nativeEvent
+          props.onEdgePick?.(event.point.toArray() as Vec3, pointerType !== 'mouse' ? 'toggle' : shiftKey ? 'add' : altKey ? 'remove' : 'set')
+          return
+        }
         if (placing && event.button === 0) {
           event.stopPropagation()
           props.onPlace(event.point.toArray() as Vec3)
@@ -267,9 +306,9 @@ function Sheet(props: SheetProps) {
         }
         handleMove(event, true)
       }}
-      onPointerMove={event => handleMove(event)}
+      onPointerMove={event => { if (picking) props.onEdgeHover?.(event.point.toArray() as Vec3); else handleMove(event) }}
       onPointerUp={() => { stroke.current = false }}
-      onPointerOut={() => setHover(null)}>
+      onPointerOut={() => { setHover(null); if (picking) props.onEdgeHover?.(null) }}>
       {/* Hidden under the solid, but still the surface that brushes and point placement hit. A new material when
           the shading changes: three.js only rebuilds a shader for flat shading when the material is new, and an
           STL that replaced the disk otherwise drew without light from the lamp, in flat grey. */}
@@ -296,6 +335,8 @@ function Sheet(props: SheetProps) {
     </mesh>)}
     {markers.lines.map(({ id, line }) => <primitive key={id} object={line} />)}
     {rimOutline && <lineSegments geometry={rimOutline} renderOrder={2}><lineBasicMaterial color="#ffd66a" depthTest={false} /></lineSegments>}
+    {borderLines && <lineSegments geometry={borderLines} renderOrder={2}><lineBasicMaterial vertexColors /></lineSegments>}
+    {loopLines.map((loop, i) => <FatLine key={i} points={loop.points} segments color={loop.color} lineWidth={3} renderOrder={3} />)}
     {/* Low points hanging in the air: dots of one size on screen, drawn through the model so the ones underneath show
         from above too. */}
     {marks && marks.length > 0 && <points geometry={lowPoints} renderOrder={5}>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { readGrowthStl } from '../physics/growthStl'
+import { findBorders } from './borders'
 import { edgeProblems, signedVolume } from './meshCheck'
 import { ballTriangles, boxTriangles, stl } from './testStl'
 import { BrokenShapeError, readUpload } from './upload'
@@ -46,6 +47,17 @@ describe('readUpload', () => {
     const { source, closed } = readUpload(stl(boxTriangles(30, 20, 10).slice(0, 10)), 'open.stl')
     expect(closed).toBe(false)
     expect(source.indices).toEqual(readGrowthStl(stl(boxTriangles(30, 20, 10).slice(0, 10)), 'open.stl').indices)
+  })
+
+  it('turns back faces a CAD export turned the wrong way on an open surface, so its edges come out right', () => {
+    // An open box, its bottom and one side each with a face written inside out.
+    const clean = readGrowthStl(stl(boxTriangles(30, 20, 10).slice(0, 10)), 'open.stl'), mixed = stl(boxTriangles(30, 20, 10, 0, [1, 6]).slice(0, 10))
+    const { source, closed } = readUpload(mixed, 'mixed.stl')
+    expect(closed).toBe(false)
+    expect(Array.from(source.indices)).toEqual(Array.from(clean.indices))
+    // As written, the turned faces made sharp edges across the flat bottom and side, where the Edges tool found loops.
+    const asWritten = readGrowthStl(mixed, 'mixed.stl')
+    expect(findBorders(asWritten.positions, asWritten.indices).sharp.length).toBeGreaterThan(findBorders(clean.positions, clean.indices).sharp.length)
   })
 
   it('says when an open STL is almost closed, so a hairline gap is not mistaken for an opening', () => {

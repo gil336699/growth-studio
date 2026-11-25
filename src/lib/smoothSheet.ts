@@ -24,6 +24,8 @@ export type SmoothSheet = {
   // on an edge takes the average of its two ends' colors.
   origin: Uint32Array
   origin2: Uint32Array
+  // The loops asked to be followed, as the edges they became: two for each edge each pass.
+  tracked: Uint32Array[]
 }
 
 export type SmoothOptions = {
@@ -31,6 +33,10 @@ export type SmoothOptions = {
   creases?: ArrayLike<number>
   // 0 keeps the creases sharp, 1 rounds them like the rest of the surface, and values between round them partly.
   bevel?: number
+  // Edges kept fully sharp whatever the bevel, such as loops the Edges tool keeps sharp or rounds on the print.
+  keep?: ArrayLike<number>
+  // Edge loops to follow through the passes, such as loops to round afterwards (lib/roundEdges).
+  track?: ArrayLike<number>[]
 }
 
 // Passes that fit under the triangle limit for a sheet with this many triangles.
@@ -97,22 +103,36 @@ export function smoothSheet(positions: ArrayLike<number>, indices: ArrayLike<num
   // With no bevel it outlasts every pass; a full bevel gives it none, which is smoothing as if it weren't there.
   const bevel = Math.min(1, Math.max(0, options.bevel ?? 0))
   let sharp: Map<number, number> | null = null
-  if (options.creases?.length && bevel < 1 && passes > 0) {
-    const n = P.length / 3, start = passes * (1 - bevel), creases = options.creases
+  if (passes > 0 && ((options.creases?.length && bevel < 1) || options.keep?.length)) {
+    const n = P.length / 3
     sharp = new Map()
-    for (let i = 0; i + 1 < creases.length; i += 2) {
-      const a = creases[i], b = creases[i + 1]
-      sharp.set(a < b ? a * n + b : b * n + a, start)
+    const set = (edges: ArrayLike<number>, sharpness: number) => {
+      for (let i = 0; i + 1 < edges.length; i += 2) {
+        const a = edges[i], b = edges[i + 1], key = a < b ? a * n + b : b * n + a
+        sharp!.set(key, Math.max(sharp!.get(key) ?? 0, sharpness))
+      }
     }
+    if (options.creases && bevel < 1) set(options.creases, passes * (1 - bevel))
+    if (options.keep) set(options.keep, passes)
   }
+  let tracked = (options.track ?? []).map(edges => Uint32Array.from(edges))
   for (let pass = 0; pass < passes; pass++) {
-    const { next, nextSharp } = loopPass(P, I, sharp), n = P.length / 3
+    const { next, nextSharp, edgeOf } = loopPass(P, I, sharp), n = P.length / 3
+    // Each followed edge becomes its two halves, which meet at the point made on it.
+    tracked = tracked.map(edges => {
+      const out: number[] = []
+      for (let i = 0; i + 1 < edges.length; i += 2) {
+        const a = edges[i], b = edges[i + 1], e = edgeOf.get(a < b ? a * n + b : b * n + a)
+        if (e !== undefined) out.push(a, n + e, n + e, b)
+      }
+      return Uint32Array.from(out)
+    })
     // Old corners keep both of their sources; a new edge point blends the main sources of its two ends.
     const o1 = Uint32Array.from(next.origin, v => origin[v])
     const o2 = Uint32Array.from(next.origin2, (v, i) => (i < n ? origin2[v] : origin[v]))
     origin = o1; origin2 = o2; P = next.positions; I = next.indices; sharp = nextSharp
   }
-  return { positions: P, indices: I, origin, origin2 }
+  return { positions: P, indices: I, origin, origin2, tracked }
 }
 
 // One Loop pass. Edges used by one face are rim edges; edges used by more than two faces count as rims too, so a
@@ -202,5 +222,5 @@ function loopPass(P: Float32Array, I: Uint32Array, sharp: Map<number, number> | 
     nextSharp.set(edgeA[e] * total + mid, rest)
     nextSharp.set(edgeB[e] * total + mid, rest)
   }
-  return { next: { positions: out, indices: J, origin, origin2 } as SmoothSheet, nextSharp }
+  return { next: { positions: out, indices: J, origin, origin2 }, nextSharp, edgeOf }
 }

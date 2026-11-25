@@ -70,6 +70,47 @@ export function splitTouching(positions: ArrayLike<number>, indices: ArrayLike<n
   return { positions: Float32Array.from(P), indices: Uint32Array.from(out), pieces: new Set(piece).size }
 }
 
+// Turns an open mesh's faces so the two faces on each edge run it opposite ways, as orientClosed does for a closed one:
+// CAD exports sometimes turn a few faces the wrong way, which breaks the loops the Edges tool finds and the wall a
+// sheet prints with. Each piece keeps the way most of its area faces, so a sheet whose faces agree is left as it is, and
+// so is a one-sided surface, whose faces can't agree. Faces meet across an edge only where it has exactly two.
+export function orientOpen(positions: ArrayLike<number>, indices: ArrayLike<number>): Uint32Array<ArrayBuffer> {
+  const I = Uint32Array.from(indices), faceCount = I.length / 3, n = positions.length / 3
+  const { faces } = edgeUse(I, n)
+  // turn[f]: 0 not reached yet, 1 kept as it is, -1 to be turned over.
+  const turn = new Int8Array(faceCount)
+  // Whether face f, as it will be turned, runs from a to b (1) or from b to a (-1).
+  const runs = (f: number, a: number, b: number) => {
+    for (let k = 0; k < 3; k++) if (I[f * 3 + k] === a && I[f * 3 + (k + 1) % 3] === b) return turn[f]
+    return -turn[f]
+  }
+  for (let start = 0; start < faceCount; start++) {
+    if (turn[start]) continue
+    turn[start] = 1
+    const piece = [start], queue = [start]
+    while (queue.length) {
+      const f = queue.pop()!
+      for (let k = 0; k < 3; k++) {
+        const a = I[f * 3 + k], b = I[f * 3 + (k + 1) % 3], list = faces.get(a < b ? a * n + b : b * n + a)!
+        if (list.length !== 2) continue
+        const g = list[0] === f ? list[1] : list[0], wanted = -runs(f, a, b)
+        if (g === f) continue
+        if (!turn[g]) {
+          turn[g] = 1
+          if (runs(g, a, b) !== wanted) turn[g] = -1
+          piece.push(g); queue.push(g)
+        } else if (runs(g, a, b) !== wanted) return Uint32Array.from(indices)
+      }
+    }
+    // Turn whichever faces of the piece have less area.
+    let kept = 0, turned = 0
+    for (const f of piece) { const area = Math.hypot(...faceNormal(positions, I, f)); if (turn[f] > 0) kept += area; else turned += area }
+    if (turned > kept) for (const f of piece) turn[f] = -turn[f]
+  }
+  for (let f = 0; f < faceCount; f++) if (turn[f] < 0) { const b = I[f * 3 + 1]; I[f * 3 + 1] = I[f * 3 + 2]; I[f * 3 + 2] = b }
+  return I
+}
+
 // Turns a closed mesh's faces so every edge is run once each way, and each piece faces outward. CAD exports sometimes
 // turn a few faces the wrong way, which would make a solid that slicers read as inside out in places. Returns null when
 // an edge isn't shared by exactly two faces, or when the faces can't agree (a one-sided surface).

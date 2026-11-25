@@ -313,3 +313,38 @@ describe('sharp edge angle', () => {
     expect(drift(at40)).toBeGreaterThan(0.1)
   })
 })
+
+describe('loops through smoothing', () => {
+  // The vase base's bottom edge, a loop of 24 sharp edges around its flat bottom.
+  const bottomLoop = (base: ReturnType<typeof vaseBase>) => sharpEdges(base.positions, base.indices)
+
+  it('follows a loop through each pass: two edges for each, still one closed loop on the same edge', () => {
+    const base = vaseBase(), loop = bottomLoop(base)
+    expect(loop.length / 2).toBe(24)
+    for (const passes of [1, 2]) {
+      const smooth = smoothSheet(base.positions, base.indices, passes, { creases: loop, track: [loop] }), [edges] = smooth.tracked
+      expect(edges.length / 2).toBe(24 * 2 ** passes)
+      // Every point on it is used by two of its edges, and every one of its edges is an edge of the smoothed sheet.
+      const uses = new Map<number, number>()
+      for (const v of edges) uses.set(v, (uses.get(v) ?? 0) + 1)
+      expect([...uses.values()].every(n => n === 2)).toBe(true)
+      const sheetEdges = new Set<string>()
+      for (let f = 0; f < smooth.indices.length; f += 3) for (let k = 0; k < 3; k++) { const a = smooth.indices[f + k], b = smooth.indices[f + (k + 1) % 3]; sheetEdges.add(a < b ? `${a}:${b}` : `${b}:${a}`) }
+      for (let i = 0; i < edges.length; i += 2) expect(sheetEdges.has(edges[i] < edges[i + 1] ? `${edges[i]}:${edges[i + 1]}` : `${edges[i + 1]}:${edges[i]}`)).toBe(true)
+      // And it runs round the flat bottom's edge.
+      for (const v of edges) {
+        expect(Math.abs(smooth.positions[v * 3 + 2])).toBeLessThan(1e-5)
+        expect(Math.hypot(smooth.positions[v * 3], smooth.positions[v * 3 + 1])).toBeGreaterThan(19.5)
+      }
+    }
+  })
+
+  it('keeps a loop chosen to keep sharp fully sharp, even with a full bevel', () => {
+    const base = vaseBase(), loop = bottomLoop(base)
+    for (const passes of [1, 2]) {
+      const kept = bottomEdge(smoothSheet(base.positions, base.indices, passes, { creases: loop, bevel: 1, keep: loop }).positions)
+      expect(kept.flat).toBeGreaterThan(19.7)
+      expect(kept.wallBottom).toBeCloseTo(0, 5)
+    }
+  })
+})

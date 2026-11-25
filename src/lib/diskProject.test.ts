@@ -199,3 +199,12 @@ it('keeps a Repel distance set in millimeters, from 0 up to many model units on 
   expect(() => deserializeDiskProject(save(-0.01))).toThrow('invalid design data')
   expect(() => deserializeDiskProject(save(11))).toThrow('invalid design data')
 })
+
+it('keeps the loops chosen with the Edges tool, and opens older projects with none', () => {
+  const input = sheet(), disk = createGrowingDisk(input)
+  const base: DiskProject = { source: source(input), disk: disk.snapshot(), mechanics: DISK_DEFAULTS, revision: 0, ...settings }
+  const edges = [{ id: 'edge-1', points: [0, 0, 0, 0.3, 0, 0, 0, 0, 0.3], closed: true, action: 'round' as const, radius: 2.5 }]
+  expect(deserializeDiskProject(serializeDiskProject({ ...base, edges })).edges).toEqual(edges)
+  expect(deserializeDiskProject(serializeDiskProject(base)).edges).toEqual([])
+  expect(() => deserializeDiskProject(serializeDiskProject({ ...base, edges: [{ ...edges[0], radius: 50 }] }))).toThrow('invalid design data')
+})

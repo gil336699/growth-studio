@@ -1,5 +1,5 @@
 // Viewport tools and rim names shared across panels.
-export type Tool = 'orbit' | 'paint' | 'erase' | 'smooth' | 'point' | 'line'
+export type Tool = 'orbit' | 'paint' | 'erase' | 'smooth' | 'edges' | 'point' | 'line'
 export const BRUSH_TOOLS: Tool[] = ['paint', 'erase', 'smooth']
 
 type Rim = { index: number; height: number }

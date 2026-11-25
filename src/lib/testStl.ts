@@ -1,4 +1,4 @@
-// Small STL files built in code, for tests: boxes, plates and balls, Z up as CAD writes them.
+// Small STL files built in code, for tests: boxes, plates, balls and shapes of revolution, Z up as CAD writes them.
 
 // A binary STL of triangles given as corner points, Z up as CAD writes them.
 export function stl(triangles: number[][][]) {
@@ -20,4 +20,18 @@ export function ballTriangles(levels: number) {
   const mid = (a: number[], b: number[]) => a.map((v, i) => (v + b[i]) / 2)
   for (let l = 0; l < levels; l++) tris = tris.flatMap(([a, b, c]) => { const ab = mid(a, b), bc = mid(b, c), ca = mid(c, a); return [[a, ab, ca], [b, bc, ab], [c, ca, bc], [ab, bc, ca]] })
   return tris.map(t => t.map(p => { const l = Math.hypot(...p); return p.map(v => 20 * v / l) }))
+}
+// A shape of revolution about the Z axis in `facets` facets, from a profile of (radius, height) points in mm: a profile
+// that starts or ends on the axis is closed there by a fan, and one that doesn't is open there.
+export function latheTriangles(profile: [number, number][], facets = 48) {
+  const tris: number[][][] = [], at = (i: number, [rho, z]: [number, number]) => [rho * Math.cos(2 * Math.PI * i / facets), rho * Math.sin(2 * Math.PI * i / facets), z]
+  for (let k = 0; k + 1 < profile.length; k++) {
+    const p = profile[k], q = profile[k + 1]
+    for (let i = 0; i < facets; i++) {
+      if (p[0] === 0) tris.push([at(i, p), at(i + 1, q), at(i, q)])
+      else if (q[0] === 0) tris.push([at(i, p), at(i + 1, p), at(i, q)])
+      else tris.push([at(i, p), at(i + 1, p), at(i + 1, q)], [at(i, p), at(i + 1, q), at(i, q)])
+    }
+  }
+  return tris
 }

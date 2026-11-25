@@ -17,6 +17,9 @@ type Props = {
   onBelow: () => void
   // What a point or line tool is placing, shown with a Done button.
   placing: string | null
+  // Whether the shape has edges to choose, and what the Edges tool says while it's on.
+  canEdges: boolean
+  edgesHint: string | null
   onTool: (tool: Tool) => void
   onBrush: (brush: BrushSettings) => void
   onUndo: () => void
@@ -31,6 +34,7 @@ const TOOLS = [
   ['paint', 'Paint', 'B', 'Brush growth onto the model. Works while it grows, and pen pressure sets strength.'],
   ['erase', 'Erase', 'E', 'Remove paint, then block other layers wherever you brush.'],
   ['smooth', 'Smooth', 'S', 'Soften the edges of painted growth.'],
+  ['edges', 'Edges', 'D', 'Click an edge of the starting shape to choose just its loop, to keep sharp or round on the print. Shift-click adds a loop, Option-click removes one.'],
 ] as const
 const percent = (value: number) => `${Math.round(value * 100)}%`
 
@@ -51,8 +55,12 @@ export function ViewportBars(props: Props) {
   return <div className="viewport-bars">
     <div className="viewport-bar-row">
       <div className="floating-bar glass" role="group" aria-label="Viewport tools">
-        {TOOLS.map(([value, label, key, title]) => <button key={value} type="button" aria-pressed={tool === value} data-tip={title} data-key={key}
-          onClick={() => props.onTool(value)}>{label}</button>)}
+        {TOOLS.map(([value, label, key, title]) => {
+          const off = value === 'edges' && !props.canEdges
+          return <button key={value} type="button" aria-pressed={tool === value} data-key={key} disabled={off}
+            data-tip={off ? 'Edges are for an uploaded STL: the built-in brain and the default disk have no designed edges.' : title}
+            onClick={() => props.onTool(value)}>{label}</button>
+        })}
         <span className="bar-divider" aria-hidden="true" />
         <button type="button" disabled={!props.canUndo} aria-label="Undo brush stroke" data-key="⌘Z"
           data-tip={props.canUndo ? 'Undo the last brush stroke.' : 'No brush strokes to undo yet.'} onClick={props.onUndo}>Undo</button>
@@ -97,6 +105,10 @@ export function ViewportBars(props: Props) {
         title="Surfaces that face down and lean out flatter than this, counted up from the bed, need support. 30° is Bambu Studio's default, 45° the classic rule." onChange={props.onPrintAngle} />
       <button type="button" data-tip="Turn the view to look at the model from below, where supports go. Frame turns it back." onClick={props.onBelow}>From below</button>
       <span className="print-readout" role="status" data-tip="Counted on the surface in the 3D view: the solid or outer layer when it's shown, otherwise the sheet, as a wall with two sides. A slicer may differ a little: it skips small overhangs, and adds supports only when they're switched on.">{props.printReadout}</span>
+    </div>}
+    {props.edgesHint && <div className="floating-bar glass placing-bar edges-bar" role="group" aria-label="Edges">
+      <span role="status">{props.edgesHint}</span>
+      <button type="button" data-tip="Go back to orbiting. The print card's Edges list keeps the loops chosen." data-key="Esc" onClick={() => props.onTool('orbit')}>Done</button>
     </div>}
     {props.placing && <div className="floating-bar glass placing-bar" role="group" aria-label="Placing">
       <span>{props.placing}</span>
